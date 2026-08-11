@@ -1,0 +1,165 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model MovieProject {
+  id               String            @id @default(uuid())
+  title            String
+  rating           Float?
+  genre            String?
+  language         String?
+  releaseYear      Int?
+  oneLiner         String?
+  review           String?
+  status           String            @default("DRAFT") // DRAFT, READY, GENERATING, COMPLETED
+  createdAt        DateTime          @default(now())
+  researchFetchedAt DateTime?
+  researchVersion   String?
+  updatedAt        DateTime          @updatedAt
+  
+  assets           MovieAsset[]
+  generatedContent GeneratedContent[]
+  editedContent    EditedContent[]
+  schedules        ContentSchedule[]
+}
+
+model MovieAsset {
+  id           String       @id @default(uuid())
+  project      MovieProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String
+  type         String       // poster, still, logo, other
+  filename     String       // stored on disk (e.g. 123-poster.jpg)
+  originalName String       
+  mimeType     String
+  path         String       // local path e.g. uploads/project-123/poster.jpg
+  createdAt    DateTime     @default(now())
+  
+  isGenerated  Boolean      @default(false)
+  width        Int?
+  height       Int?
+  template     String?
+  format       String?
+  
+  schedules    ContentSchedule[]
+}
+
+model ContentSchedule {
+  id           String           @id @default(uuid())
+  project      MovieProject     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId    String
+  title        String
+  contentType  String
+  contentId    String?
+  asset        MovieAsset?      @relation(fields: [assetId], references: [id], onDelete: SetNull)
+  assetId      String?
+  scheduledFor DateTime
+  status       String           @default("SCHEDULED")
+  platform     String
+  notes        String?
+  strategyItemId String?        @unique
+
+  // Strategy Metadata
+  hookType       String         @default("NONE")
+  templateType   String         @default("NONE")
+  voiceProfileId String?
+
+  // Publishing Metadata
+  publishedAt          DateTime?
+  publishError         String?
+  externalPostId       String?
+  lastPublishAttemptAt DateTime?
+  publishAttempts      Int              @default(0)
+
+  createdAt    DateTime         @default(now())
+  updatedAt    DateTime         @updatedAt
+
+  performances ContentPerformance[]
+}
+
+model ContentPerformance {
+  id           String           @id @default(uuid())
+  schedule     ContentSchedule  @relation(fields: [scheduleId], references: [id], onDelete: Cascade)
+  scheduleId   String
+  
+  views        Int              @default(0)
+  likes        Int              @default(0)
+  comments     Int              @default(0)
+  shares       Int              @default(0)
+  saves        Int              @default(0)
+  retention    Float            @default(0) // Percentage 0-100
+  
+  isSimulated  Boolean          @default(false)
+  fetchedAt    DateTime         @default(now())
+}
+
+model SocialAccount {
+  id           String   @id @default(uuid())
+  platform     String   // INSTAGRAM, YOUTUBE
+  accountName  String
+  accountId    String?
+  accessToken  String?
+  refreshToken String?
+  expiresAt    DateTime?
+  status       String   @default("CONNECTED")
+  isMock       Boolean  @default(true)
+  
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model BrandKit {
+  id                  String   @id @default(uuid())
+  name                String   @default("My Brand")
+  logoPath            String?
+  primaryFont         String?
+  secondaryFont       String?
+  primaryColor        String?
+  secondaryColor      String?
+  accentColor         String?
+  brandingPreferences String?  // Storing JSON string for any other prefs
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model VoiceProfile {
+  id          String   @id @default(uuid())
+  name        String
+  language    String
+  style       String
+  structure   String
+  constraints String?
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model GeneratedContent {
+  id            String       @id @default(uuid())
+  project       MovieProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId     String
+  type          String       // INSTAGRAM, YOUTUBE, REVIEW
+  version       Int          @default(1)
+  content       String       // JSON string
+  model         String       // e.g. gemini-1.5-pro
+  promptVersion String?
+  status        String       @default("SUCCESS")
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+}
+
+model EditedContent {
+  id          String       @id @default(uuid())
+  project     MovieProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  type        String       // INSTAGRAM, YOUTUBE, REVIEW
+  content     String       // JSON string
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  @@unique([projectId, type])
+}
