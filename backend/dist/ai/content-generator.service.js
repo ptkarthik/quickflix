@@ -19,14 +19,17 @@ const youtube_builder_1 = require("./builders/youtube.builder");
 const reel_script_builder_1 = require("./builders/reel-script.builder");
 const strategy_builder_1 = require("./builders/strategy.builder");
 const settings_service_1 = require("../settings/settings.service");
+const analytics_engine_service_1 = require("../analytics/analytics-engine.service");
 let ContentGeneratorService = class ContentGeneratorService {
     aiService;
     prisma;
     settingsService;
-    constructor(aiService, prisma, settingsService) {
+    analyticsEngineService;
+    constructor(aiService, prisma, settingsService, analyticsEngineService) {
         this.aiService = aiService;
         this.prisma = prisma;
         this.settingsService = settingsService;
+        this.analyticsEngineService = analyticsEngineService;
     }
     async generateAll(projectId) {
         const movie = await this.prisma.movieProject.findUnique({
@@ -83,7 +86,8 @@ let ContentGeneratorService = class ContentGeneratorService {
             case 'CONTENT_STRATEGY':
                 const existingContent = await this.prisma.generatedContent.findMany({ where: { projectId: movie.id } });
                 const schedules = await this.prisma.contentSchedule.findMany({ where: { projectId: movie.id } });
-                prompt = strategy_builder_1.ContentStrategyBuilder.build(movie, reviewContext || {}, existingContent, schedules) + profileText;
+                const findings = await this.analyticsEngineService.generateFindings(movie.id);
+                prompt = strategy_builder_1.ContentStrategyBuilder.build(movie, reviewContext || {}, existingContent, schedules, findings) + profileText;
                 break;
             default:
                 throw new Error('Invalid generation type');
@@ -111,6 +115,7 @@ exports.ContentGeneratorService = ContentGeneratorService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [ai_service_1.AiService,
         prisma_service_1.PrismaService,
-        settings_service_1.SettingsService])
+        settings_service_1.SettingsService,
+        analytics_engine_service_1.AnalyticsEngineService])
 ], ContentGeneratorService);
 //# sourceMappingURL=content-generator.service.js.map

@@ -47,6 +47,7 @@ export declare class AssetsController {
         template: string | null;
         format: string | null;
     }[]>;
+    proxyImage(url: string, res: any): Promise<any>;
     findAll(): import(".prisma/client").Prisma.PrismaPromise<({
         project: {
             title: string;

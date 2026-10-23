@@ -22,6 +22,7 @@ const calendar_module_1 = require("./calendar/calendar.module");
 const settings_module_1 = require("./settings/settings.module");
 const social_module_1 = require("./social/social.module");
 const analytics_module_1 = require("./analytics/analytics.module");
+const creative_module_1 = require("./creative/creative.module");
 let AppModule = class AppModule {
 };
 exports.AppModule = AppModule;
@@ -38,6 +39,7 @@ exports.AppModule = AppModule = __decorate([
             settings_module_1.SettingsModule,
             social_module_1.SocialModule,
             analytics_module_1.AnalyticsModule,
+            creative_module_1.CreativeModule,
             serve_static_1.ServeStaticModule.forRoot({
                 rootPath: (0, path_1.join)(process.cwd(), 'uploads'),
                 serveRoot: '/uploads',

@@ -3,21 +3,33 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { PlusCircle, Clock, Star, Film, LayoutTemplate, Layers, CalendarPlus, Settings } from 'lucide-react';
 
+import { apiFetch, API_BASE } from '@/lib/api';
+
 export default function Dashboard() {
   const [projects, setProjects] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const loadProjects = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await apiFetch('/projects');
+      if (res.ok) {
+        const data = await res.json();
+        setProjects(data);
+      } else {
+        setError('Unable to load projects from server.');
+      }
+    } catch {
+      setError('Backend server is still starting or unreachable. Please try again in a moment.');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    fetch('http://localhost:3000/projects')
-      .then((res) => res.json())
-      .then((data) => {
-        setProjects(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        console.error('Failed to fetch projects', err);
-        setLoading(false);
-      });
+    loadProjects();
   }, []);
 
   return (
@@ -72,6 +84,16 @@ export default function Dashboard() {
               <div className="flex justify-center py-20">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
               </div>
+            ) : error ? (
+              <div className="bg-slate-900/50 border border-amber-500/20 rounded-xl p-8 text-center flex flex-col items-center">
+                <p className="text-amber-400 font-medium mb-3">{error}</p>
+                <button
+                  onClick={loadProjects}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-md font-medium text-sm transition-colors"
+                >
+                  Retry Connection
+                </button>
+              </div>
             ) : projects.length === 0 ? (
               <div className="bg-slate-900/50 border border-slate-800 rounded-xl p-12 text-center flex flex-col items-center">
                 <div className="bg-slate-800 p-4 rounded-full mb-4">
@@ -94,7 +116,7 @@ export default function Dashboard() {
                       <div className="aspect-[3/4] bg-slate-800 relative">
                         {project.assets?.find((a: any) => a.type === 'poster') ? (
                           <img 
-                            src={`http://localhost:3000/${project.assets.find((a: any) => a.type === 'poster').path}`} 
+                            src={`${API_BASE}/${project.assets.find((a: any) => a.type === 'poster').path}`} 
                             alt={project.title} 
                             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                           />

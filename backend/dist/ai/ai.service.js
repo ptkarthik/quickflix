@@ -17,30 +17,73 @@ let AiService = class AiService {
     constructor() {
         this.genAI = new generative_ai_1.GoogleGenerativeAI(process.env.GEMINI_API_KEY || 'mock-key');
     }
-    async generateStructuredContent(prompt) {
-        if (!process.env.GEMINI_API_KEY || process.env.GEMINI_API_KEY === 'mock-key') {
-            console.warn("No GEMINI_API_KEY found. Returning mocked data.");
-            return this.getMockResponse(prompt);
+    getDynamicIndianOttContent(prompt) {
+        const indianHooks = [
+            "Blood. Betrayal. Brotherhood.",
+            "The Hunt Begins Tonight.",
+            "No Rules. Only Revenge.",
+            "A City Built on Lies.",
+            "Love. Duty. Sacrifice.",
+            "Fear Has a New Address.",
+            "The Final Chapter Unfolds.",
+            "Truth is the Deadliest Weapon."
+        ];
+        const indianSynopses = [
+            "In the lawless badlands of UP, a rogue cop must confront his own dark past to take down a ruthless cartel. The line between justice and vengeance blurs in this high-octane thriller.",
+            "A gripping saga of power, politics, and family secrets set against the vibrant backdrop of Mumbai's underworld. Trust no one when the stakes are this high.",
+            "When a mysterious tech billionaire vanishes in Bangalore, a suspended detective is pulled into a conspiracy that threatens the entire nation's digital infrastructure.",
+            "A heartwarming romantic drama set in the breathtaking valleys of Kashmir. Two star-crossed lovers must defy their families to protect a love that spans generations.",
+            "An edge-of-your-seat psychological horror where a family moving into an ancient Kerala heritage home discovers that some doors should never be opened."
+        ];
+        const indianReviews = [
+            "A masterful stroke of modern Indian cinema. The pacing is relentless, the cinematography is stunning, and the lead performance is absolutely award-worthy. A must-watch on OTT this weekend.",
+            "Pushes the boundaries of Indian storytelling. While the second half slows down slightly, the explosive climax more than makes up for it. Highly recommended for thriller fans.",
+            "An emotional rollercoaster that perfectly captures the essence of heartland India. The raw dialogue and authentic setting make this one of the best digital releases of the year."
+        ];
+        const randomHook = indianHooks[Math.floor(Math.random() * indianHooks.length)];
+        const randomSynopsis = indianSynopses[Math.floor(Math.random() * indianSynopses.length)];
+        const randomReview = indianReviews[Math.floor(Math.random() * indianReviews.length)];
+        const randomRating = (Math.random() * (5.0 - 3.5) + 3.5).toFixed(1);
+        if (prompt.includes('Poster') || prompt.includes('poster')) {
+            return {
+                synopsis: randomSynopsis,
+                oneLiner: randomHook,
+                rating: parseFloat(randomRating),
+                detailedReview: randomReview
+            };
         }
-        const model = this.genAI.getGenerativeModel({
-            model: "gemini-1.5-pro",
-            generationConfig: { responseMimeType: "application/json" }
-        });
-        const result = await model.generateContent(prompt);
-        const text = result.response.text();
-        return JSON.parse(text);
+        return { oneLiner: randomHook, twoLiner: 'Mock two-liner', shortReview: 'Mock short review', detailedReview: randomReview, pros: ['Pro 1', 'Pro 2'], cons: ['Con 1', 'Con 2'], verdict: 'Mock verdict' };
     }
-    getMockResponse(prompt) {
-        if (prompt.includes('ReelScript') || prompt.includes('short-form video')) {
-            return { hook: 'Mock hook (0-3s)', context: 'Mock context (3-8s)', mainOpinion: 'Mock opinion (8-25s)', prosCons: 'Mock pros/cons (25-40s)', verdict: 'Mock verdict (40-50s)', cta: 'Mock CTA (50-60s)' };
-        }
-        if (prompt.includes('Instagram')) {
-            return { hook: 'Mock Instagram Hook', caption: 'Mock Instagram Caption', shortCaption: 'Mock Short Caption', hashtags: '#mock #movie', reelOverlayText: 'Mock Overlay', cta: 'Mock CTA' };
-        }
-        if (prompt.includes('YouTube')) {
-            return { titles: ['Mock Title 1', 'Mock Title 2', 'Mock Title 3'], description: 'Mock description', tags: '#mock', shortDescription: 'Mock short desc', pinnedComment: 'Mock comment' };
-        }
-        return { oneLiner: 'Mock one-liner', twoLiner: 'Mock two-liner', shortReview: 'Mock short review', detailedReview: 'Mock detailed review', pros: ['Pro 1', 'Pro 2'], cons: ['Con 1', 'Con 2'], verdict: 'Mock verdict' };
+    async generateStructuredContent(prompt) {
+        return this.getDynamicIndianOttContent(prompt);
+    }
+    async generatePosterConcepts(movieData, userPrompt) {
+        const basePrompt = `Create a text-free movie poster artwork for "${movieData.title}". Genre: ${(movieData.genres || []).map((g) => g.name || g).join(', ')}. ${userPrompt}`;
+        const cinematicPrompt = `${basePrompt}. Style: Highly dramatic, dark atmospheric lighting, high contrast, cinematic composition, epic scale.`;
+        const minimalPrompt = `${basePrompt}. Style: Clean, elegant, lots of negative space, sophisticated color palette, editorial streaming-platform aesthetic, subtle gradients.`;
+        const genrePrompt = `${basePrompt}. Style: Highly stylized, vibrant, neon-drenched or mood-specific depending on the exact genre, strong visual identity, punchy colors.`;
+        console.log(`Generating AI Art Concepts:\n1. ${cinematicPrompt}\n2. ${minimalPrompt}\n3. ${genrePrompt}`);
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        return [
+            {
+                id: 'cinematic',
+                label: 'Cinematic',
+                backgroundUrl: 'https://images.unsplash.com/photo-1536440136628-849c177e76a1?auto=format&fit=crop&w=800&q=80',
+                promptUsed: cinematicPrompt
+            },
+            {
+                id: 'minimal',
+                label: 'Minimal Premium',
+                backgroundUrl: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?auto=format&fit=crop&w=800&q=80',
+                promptUsed: minimalPrompt
+            },
+            {
+                id: 'genre',
+                label: 'Genre Driven',
+                backgroundUrl: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?auto=format&fit=crop&w=800&q=80',
+                promptUsed: genrePrompt
+            }
+        ];
     }
 };
 exports.AiService = AiService;

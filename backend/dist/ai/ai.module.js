@@ -13,12 +13,13 @@ const content_generator_service_1 = require("./content-generator.service");
 const ai_controller_1 = require("./ai.controller");
 const prisma_module_1 = require("../prisma/prisma.module");
 const settings_module_1 = require("../settings/settings.module");
+const analytics_module_1 = require("../analytics/analytics.module");
 let AiModule = class AiModule {
 };
 exports.AiModule = AiModule;
 exports.AiModule = AiModule = __decorate([
     (0, common_1.Module)({
-        imports: [prisma_module_1.PrismaModule, settings_module_1.SettingsModule],
+        imports: [prisma_module_1.PrismaModule, settings_module_1.SettingsModule, analytics_module_1.AnalyticsModule],
         controllers: [ai_controller_1.AiController],
         providers: [ai_service_1.AiService, content_generator_service_1.ContentGeneratorService],
         exports: [ai_service_1.AiService, content_generator_service_1.ContentGeneratorService]

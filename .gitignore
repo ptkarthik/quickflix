@@ -1,0 +1,40 @@
+# Dependencies
+node_modules/
+*/node_modules/
+.pnp
+.pnp.*
+
+# Environment variables and secrets
+.env
+.env.*
+!.env.example
+*.env
+
+# Temporary and test scratch files
+res*.json
+test-*.js
+test_*.js
+debug-*.js
+rebuild*.js
+append_tests.js
+backend/test-*.js
+backend/debug-*.js
+backend/rebuild*.js
+backend/append_tests.js
+
+# Next.js build output
+frontend/.next/
+frontend/out/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# OS and Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

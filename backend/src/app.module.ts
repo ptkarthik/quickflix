@@ -13,6 +13,7 @@ import { CalendarModule } from './calendar/calendar.module';
 import { SettingsModule } from './settings/settings.module';
 import { SocialModule } from './social/social.module';
 import { AnalyticsModule } from './analytics/analytics.module';
+import { CreativeModule } from './creative/creative.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { AnalyticsModule } from './analytics/analytics.module';
     SettingsModule,
     SocialModule,
     AnalyticsModule,
+    CreativeModule,
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',

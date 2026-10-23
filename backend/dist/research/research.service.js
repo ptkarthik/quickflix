@@ -13,11 +13,14 @@ exports.ResearchService = void 0;
 const common_1 = require("@nestjs/common");
 const tmdb_provider_1 = require("./providers/tmdb.provider");
 const prisma_service_1 = require("../prisma/prisma.service");
+const release_discovery_service_1 = require("./services/release-discovery.service");
 let ResearchService = class ResearchService {
     tmdbProvider;
+    releaseDiscovery;
     prisma;
-    constructor(tmdbProvider, prisma) {
+    constructor(tmdbProvider, releaseDiscovery, prisma) {
         this.tmdbProvider = tmdbProvider;
+        this.releaseDiscovery = releaseDiscovery;
         this.prisma = prisma;
     }
     async search(projectId) {
@@ -37,11 +40,22 @@ let ResearchService = class ResearchService {
         });
         return research;
     }
+    async getUpcomingOttIndia() {
+        const all = await this.discoverAll();
+        return all.upcomingOTT;
+    }
+    async discoverAll() {
+        return this.releaseDiscovery.discoverAll();
+    }
+    async getMovieDetails(tmdbId) {
+        return this.tmdbProvider.getMovieDetails(tmdbId);
+    }
 };
 exports.ResearchService = ResearchService;
 exports.ResearchService = ResearchService = __decorate([
     (0, common_1.Injectable)(),
     __metadata("design:paramtypes", [tmdb_provider_1.TmdbProvider,
+        release_discovery_service_1.ReleaseDiscoveryService,
         prisma_service_1.PrismaService])
 ], ResearchService);
 //# sourceMappingURL=research.service.js.map

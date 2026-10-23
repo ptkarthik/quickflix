@@ -1,10 +1,10 @@
 'use client';
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { ChevronRight, Check, Film, Image as ImageIcon, UploadCloud } from 'lucide-react';
+import { ChevronRight, Check, Film, ImageIcon, UploadCloud } from 'lucide-react';
 import Link from 'next/link';
 
-export default function CreateMovie() {
+const CreateMovie = () => {
   const router = useRouter();
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -229,4 +229,6 @@ export default function CreateMovie() {
       </div>
     </div>
   );
-}
+};
+
+export default CreateMovie;

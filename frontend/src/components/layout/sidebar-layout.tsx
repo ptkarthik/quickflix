@@ -1,7 +1,7 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { Home, Film, PlusCircle, Settings, Palette } from 'lucide-react';
+import { Home, Film, PlusCircle, Settings, Palette, Tv } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 export function SidebarLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +37,20 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
           )}>
             <PlusCircle className={cn("w-5 h-5", pathname === '/create' ? "text-indigo-400" : "")} />
             <span>New Movie</span>
+          </Link>
+          <Link href="/discover" className={cn(
+            "flex items-center space-x-3 px-3 py-2 rounded-md transition-colors",
+            pathname === '/discover' ? "bg-slate-900 text-white font-medium" : "text-slate-300 hover:bg-slate-900 hover:text-white"
+          )}>
+            <Tv className={cn("w-5 h-5", pathname === '/discover' ? "text-indigo-400" : "")} />
+            <span>Discover OTT</span>
+          </Link>
+          <Link href="/canvas" className={cn(
+            "flex items-center space-x-3 px-3 py-2 rounded-md transition-colors",
+            pathname === '/canvas' ? "bg-slate-900 text-white font-medium" : "text-slate-300 hover:bg-slate-900 hover:text-white"
+          )}>
+            <Palette className={cn("w-5 h-5", pathname === '/canvas' ? "text-indigo-400" : "")} />
+            <span>AI Canvas</span>
           </Link>
           <Link href="/brand" className={cn(
             "flex items-center space-x-3 px-3 py-2 rounded-md transition-colors",

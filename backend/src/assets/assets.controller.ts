@@ -1,6 +1,7 @@
-import { Controller, Post, Param, UseInterceptors, UploadedFile, Body, Get } from '@nestjs/common';
+import { Controller, Post, Param, UseInterceptors, UploadedFile, Body, Get, Query, Res } from '@nestjs/common';
 import { AssetsService } from './assets.service';
 import { FileInterceptor } from '@nestjs/platform-express';
+import axios from 'axios';
 
 @Controller('assets')
 export class AssetsController {
@@ -52,6 +53,26 @@ export class AssetsController {
   @Get('project/:projectId')
   findByProject(@Param('projectId') projectId: string) {
     return this.assetsService.findByProject(projectId);
+  }
+
+  @Get('proxy')
+  async proxyImage(@Query('url') url: string, @Res() res: any) {
+    if (!url) return res.status(400).send('Missing url parameter');
+    try {
+      const response = await axios.get(url, {
+        responseType: 'arraybuffer',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+          'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8'
+        }
+      });
+      res.setHeader('Content-Type', response.headers['content-type'] || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=86400');
+      res.setHeader('Access-Control-Allow-Origin', '*');
+      return res.send(Buffer.from(response.data));
+    } catch (err: any) {
+      return res.status(500).send(`Proxy error: ${err.message}`);
+    }
   }
 
   @Get()

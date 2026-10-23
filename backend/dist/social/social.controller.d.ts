@@ -37,13 +37,13 @@ export declare class SocialController {
         id: string;
         createdAt: Date;
         updatedAt: Date;
-        title: string;
-        status: string;
         projectId: string;
+        title: string;
         contentType: string;
         contentId: string | null;
         assetId: string | null;
         scheduledFor: Date;
+        status: string;
         platform: string;
         notes: string | null;
         strategyItemId: string | null;

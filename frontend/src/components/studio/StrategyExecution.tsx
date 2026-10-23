@@ -92,7 +92,7 @@ export function StrategyExecution({
         formData.append('width', renderConfig.width.toString());
         formData.append('height', renderConfig.height.toString());
 
-        const assetRes = await fetch('http://localhost:3000/assets/upload', {
+        const assetRes = await fetch(`http://localhost:3000/assets/${project.id}/generated`, {
           method: 'POST',
           body: formData
         });
@@ -225,8 +225,8 @@ export function StrategyExecution({
               <div className="flex-1">
                  <h4 className="text-sm font-bold text-white flex items-center mb-1">
                    {item.format.replace(/_/g, ' ')}
-                   {!['REEL', 'YOUTUBE_REVIEW'].includes(item.format) && <ImageIcon className="w-3 h-3 ml-2 text-slate-500" title="Generates Graphic" />}
-                   {['REEL', 'YOUTUBE_REVIEW'].includes(item.format) && <CalendarPlus className="w-3 h-3 ml-2 text-slate-500" title="Calendar Only" />}
+                   {!['REEL', 'YOUTUBE_REVIEW'].includes(item.format) && <span title="Generates Graphic"><ImageIcon className="w-3 h-3 ml-2 text-slate-500" /></span>}
+                   {['REEL', 'YOUTUBE_REVIEW'].includes(item.format) && <span title="Calendar Only"><CalendarPlus className="w-3 h-3 ml-2 text-slate-500" /></span>}
                  </h4>
                  <p className="text-xs text-slate-400">{item.notes}</p>
               </div>

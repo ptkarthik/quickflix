@@ -287,7 +287,25 @@ export default function ProjectWorkspace({ params }: { params: Promise<{ id: str
               />
             </div>
           ) : (
-            <ReelStoryboard script={currentData} assets={project.assets || []} />
+            <ReelStoryboard 
+               script={(() => {
+                 let d = currentData;
+                 if (typeof d === 'string') {
+                    try { d = JSON.parse(d); } catch(e){}
+                 }
+                 if (Array.isArray(d)) return d;
+                 if (d && typeof d === 'object') {
+                    if (Array.isArray(d.scenes)) return d.scenes;
+                    if (Array.isArray(d.script)) return d.script;
+                    const arrVal = Object.values(d).find(v => Array.isArray(v));
+                    if (arrVal) return arrVal;
+                    // Gemini returned a single object instead of an array
+                    return [d];
+                 }
+                 return [];
+               })()} 
+               assets={project.assets || []} 
+            />
           )
         )}
         {activeTab === 'CONTENT_STRATEGY' && currentData && (

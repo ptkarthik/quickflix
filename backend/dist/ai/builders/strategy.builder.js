@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ContentStrategyBuilder = void 0;
 class ContentStrategyBuilder {
-    static build(movie, reviewContent, existingContent, schedules) {
+    static build(movie, reviewContent, existingContent, schedules, findings) {
         const existingTypes = existingContent.map(c => c.type).join(', ') || 'None';
         let assetsManifest = 'No assets available.';
         if (movie.assets && movie.assets.length > 0) {
@@ -14,6 +14,13 @@ class ContentStrategyBuilder {
         }
         else {
             scheduleManifest += 'None';
+        }
+        let findingsManifest = 'STATISTICAL FINDINGS:\n';
+        if (findings && findings.length > 0) {
+            findingsManifest += findings.map(f => `- [${f.confidence}] ${f.category}: ${f.insight} (${f.details})`).join('\n');
+        }
+        else {
+            findingsManifest += 'No statistical data available yet.';
         }
         return `
       You are an expert Social Media Content Strategist for movie reviews.
@@ -29,11 +36,14 @@ class ContentStrategyBuilder {
       Already Generated AI Content Types: ${existingTypes}
       ${assetsManifest}
       ${scheduleManifest}
+      
+      ${findingsManifest}
 
       RULE:
       Based on the movie's rating, your review, and what content/assets ALREADY exist, recommend a high-value publishing sequence.
       DO NOT recommend content types that already exist in the schedule (unless it's a completely different platform/format and makes sense).
       Focus on a logical flow (e.g., Awareness -> Engagement -> Deep Dive).
+      CRITICAL: You MUST incorporate the STATISTICAL FINDINGS into your strategy. If a format or hook has a STRONG_SIGNAL, prioritize it. Do not invent numerical metrics; use exactly what is provided.
 
       Available Formats to Recommend:
       - REEL (Instagram/TikTok/YouTube Shorts)
