@@ -1,6 +1,5 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { SidebarLayout } from '@/components/layout/sidebar-layout';
 import { PosterGeneratorCanvas } from '@/components/studio/PosterGeneratorCanvas';
 import { 
   Loader2, 
@@ -18,6 +17,9 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { apiFetch } from '@/lib/api';
+import Link from 'next/link';
+import { OttRelease, TRUST_STYLE, Trust, displayTitle, fmtDate, isCatalogueTitle, isRecentlyOnOtt, ottApi, todayIst } from '@/lib/ott';
+import { CinemaRelease, cinemaApi, cinemaBucket, relativeDay } from '@/lib/cinema';
 
 const TABS = [
   { 
@@ -81,9 +83,53 @@ export default function DiscoverPage() {
     try {
       setIsLoading(true);
       setFetchError(null);
-      const res = await apiFetch('/discover/all');
+      const [res, approvedOtt, approvedCinema] = await Promise.all([
+        apiFetch('/discover/all'),
+        // Upcoming OTT + Now Streaming come from the evidence-backed, manually approved OTT Desk list.
+        ottApi.list({ status: 'APPROVED' }).catch(() => [] as OttRelease[]),
+        // Upcoming / Now in Theaters come from the approved Cinema Desk list (same evidence model).
+        cinemaApi.list({ status: 'APPROVED' }).catch(() => [] as CinemaRelease[]),
+      ]);
       if (res.ok) {
         const result = await res.json();
+        const today = todayIst();
+        const toCinemaCard = (r: CinemaRelease) => ({
+          canonicalId: `cinema:${r.id}`,
+          tmdbId: r.tmdbId,
+          title: r.title,
+          posterPath: r.posterPath,
+          overview: r.overview,
+          originalLanguage: r.language,
+          industries: [],
+          theatricalRelease: r.releaseDate,
+          artworkStatus: r.posterPath ? 'READY' : 'ARTWORK_REQUIRED',
+          trust: r.trust,
+          certificate: r.certificate,
+        });
+        result.upcomingTheater = approvedCinema.filter(r => cinemaBucket(r, today) === 'upcoming').sort((a, b) => a.releaseDate!.localeCompare(b.releaseDate!)).map(toCinemaCard);
+        result.nowInTheater = approvedCinema.filter(r => cinemaBucket(r, today) === 'now').sort((a, b) => b.releaseDate!.localeCompare(a.releaseDate!)).map(toCinemaCard);
+        const toCard = (r: OttRelease, status: string) => ({
+          canonicalId: `ott:${r.id}`,
+          tmdbId: r.tmdbId,
+          title: displayTitle(r),
+          posterPath: r.posterPath,
+          overview: r.overview,
+          originalLanguage: r.language,
+          industries: [],
+          primaryPlatform: r.platform,
+          ottRelease: r.releaseDate,
+          watchUrl: r.evidence?.find(e => e.sourceType === 'OFFICIAL_YOUTUBE')?.sourceUrl || r.sourceUrl,
+          artworkStatus: r.posterPath ? 'READY' : 'ARTWORK_REQUIRED',
+          streamingStatus: status,
+        });
+        const recent = approvedOtt.filter(r => isRecentlyOnOtt(r, today));
+        const upcoming = approvedOtt.filter(r => !recent.includes(r) && (!r.releaseDate || r.releaseDate >= today));
+        result.upcomingOTT = upcoming
+          .sort((a, b) => (a.releaseDate || '9999').localeCompare(b.releaseDate || '9999'))
+          .map(r => toCard(r, `${r.platform ? `On ${r.platform}` : 'Platform TBA'} • ${fmtDate(r.releaseDate, { day: 'numeric', month: 'short', year: 'numeric' })}`));
+        result.nowStreaming = recent
+          .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''))
+          .map(r => toCard(r, `${isCatalogueTitle(r) ? 'New to' : 'Streaming on'} ${r.platform}${r.releaseDate ? ` since ${fmtDate(r.releaseDate)}` : ''}${r.liveStatus === 'LIVE' ? ' ✓' : ''}`));
         setData(result);
       } else {
         setFetchError('Failed to fetch movies from server.');
@@ -121,7 +167,7 @@ export default function DiscoverPage() {
   };
 
   return (
-    <SidebarLayout>
+    <>
       <div className="flex flex-col h-full">
         {/* Sticky Header */}
         <div className="p-6 pb-0 border-b border-slate-800 bg-[#0a0a0c] sticky top-0 z-10">
@@ -251,22 +297,25 @@ export default function DiscoverPage() {
         </div>
 
         {/* Strict Indian Theatrical Gatekeeper Banner */}
-        {activeTab === 'upcomingTheater' && (
-          <div className="mx-6 mt-4 p-3.5 bg-gradient-to-r from-amber-500/10 via-indigo-500/10 to-transparent border border-amber-500/20 rounded-xl flex items-center justify-between text-xs">
-            <div className="flex items-center gap-2.5">
-              <ShieldCheck className="w-4 h-4 text-emerald-400 flex-shrink-0" />
-              <div>
-                <span className="text-white font-bold">
-                  Strict Indian Theatrical Gatekeeper:
-                </span>{' '}
-                <span className="text-slate-300">
-                  Showing strictly verified upcoming Indian cinema releases with future theatrical dates. Zero mock entities, zero OTT overlaps, zero running films.
-                </span>
-              </div>
-            </div>
-            <div className="hidden sm:flex items-center gap-1.5 text-[11px] text-emerald-400 font-bold bg-emerald-950/60 px-3 py-1 rounded-full border border-emerald-500/30 whitespace-nowrap">
-              <CheckCircle2 className="w-3.5 h-3.5" /> Region IN Validated
-            </div>
+        {(activeTab === 'upcomingTheater' || activeTab === 'nowInTheater') && (
+          <div className="mx-6 mt-4 p-3.5 bg-amber-500/10 border border-amber-500/30 rounded-xl flex items-center justify-between gap-3 text-xs">
+            <span className="text-slate-300">
+              <span className="text-white font-bold">Manually reviewed list:</span> only films you approved in the Cinema Desk appear here — dates cross-checked across TMDB, Wikipedia, official channels and news.
+            </span>
+            <Link href="/cinema" className="whitespace-nowrap rounded-md bg-amber-600 hover:bg-amber-700 px-3 py-1.5 font-semibold text-white">
+              Open Cinema Desk
+            </Link>
+          </div>
+        )}
+
+        {(activeTab === 'upcomingOTT' || activeTab === 'nowStreaming') && (
+          <div className="mx-6 mt-4 p-3.5 bg-purple-500/10 border border-purple-500/30 rounded-xl flex items-center justify-between gap-3 text-xs">
+            <span className="text-slate-300">
+              <span className="text-white font-bold">Manually reviewed list:</span> only titles you approved in the OTT Desk appear here.
+            </span>
+            <Link href="/ott" className="whitespace-nowrap rounded-md bg-purple-600 hover:bg-purple-700 px-3 py-1.5 font-semibold text-white">
+              Open OTT Desk
+            </Link>
           </div>
         )}
 
@@ -327,7 +376,7 @@ export default function DiscoverPage() {
                     >
                       {movie.posterPath ? (
                         <img 
-                          src={`https://image.tmdb.org/t/p/w500${movie.posterPath}`} 
+                          src={/^https?:/.test(movie.posterPath) ? movie.posterPath : `https://image.tmdb.org/t/p/w500${movie.posterPath}`} 
                           alt={movie.title}
                           className="w-full h-full object-cover"
                         />
@@ -346,9 +395,9 @@ export default function DiscoverPage() {
                           {currentTabConfig.badgeLabel}
                         </span>
 
-                        {activeTab === 'upcomingTheater' && (
-                          <span className="px-2 py-0.5 bg-emerald-950/80 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold uppercase tracking-wider rounded shadow-md flex items-center gap-1">
-                            <ShieldCheck className="w-2.5 h-2.5" /> India Verified
+                        {(activeTab === 'upcomingTheater' || activeTab === 'nowInTheater') && movie.trust && (
+                          <span className="px-2 py-0.5 bg-black/70 text-white border border-white/20 text-[10px] font-bold uppercase tracking-wider rounded shadow-md flex items-center gap-1">
+                            {TRUST_STYLE[movie.trust as Trust]?.icon} {TRUST_STYLE[movie.trust as Trust]?.label}{movie.certificate ? ` · ${movie.certificate}` : ''}
                           </span>
                         )}
 
@@ -388,12 +437,7 @@ export default function DiscoverPage() {
                           <span className={`w-2 h-2 rounded-full ${currentTabConfig.dotColor} ${activeTab === 'nowStreaming' ? 'animate-pulse' : ''}`} />
                           <span className="font-medium">
                             {activeTab === 'upcomingTheater' ? (
-                              (() => {
-                                const days = movie.theatricalRelease 
-                                  ? Math.max(0, Math.round((new Date(movie.theatricalRelease).getTime() - new Date().getTime()) / 86400000))
-                                  : null;
-                                return `In Theaters: ${formattedDate}${days !== null ? ` (${days} days to go)` : ''}`;
-                              })()
+                              `In Cinemas: ${formattedDate}${movie.theatricalRelease ? ` (${relativeDay(movie.theatricalRelease, todayIst())})` : ''}`
                             ) : (
                               movie.streamingStatus || (
                                 activeTab === 'nowStreaming' 
@@ -466,6 +510,6 @@ export default function DiscoverPage() {
           onClose={() => setSelectedMovie(null)} 
         />
       )}
-    </SidebarLayout>
+    </>
   );
 }

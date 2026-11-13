@@ -12,6 +12,13 @@ import { MovieClassificationService } from './services/movie-classification.serv
 import { OmdbProvider } from './providers/omdb.provider';
 import { ImdbCrosscheckProvider } from './providers/imdb-crosscheck.provider';
 import { TheatricalValidatorService } from './services/theatrical-validator.service';
+import { CoverageAuditService } from './services/coverage-audit.service';
+import { DiscoveryCacheService } from './services/discovery-cache.service';
+import { NowInTheatersValidatorService } from './services/now-in-theaters-validator.service';
+import { NowInTheatersAuditService } from './services/now-in-theaters-audit.service';
+import { OttValidatorService } from './services/ott-validator.service';
+import { IndianOttRegistryService } from './services/indian-ott-registry.service';
+import { EvidenceVerificationAuthorityService } from './services/evidence-verification-authority.service';
 
 @Module({
   imports: [PrismaModule, AiModule, forwardRef(() => CreativeModule)],
@@ -23,7 +30,14 @@ import { TheatricalValidatorService } from './services/theatrical-validator.serv
     ImdbCrosscheckProvider, 
     TheatricalValidatorService, 
     ReleaseDiscoveryService, 
-    MovieClassificationService
+    MovieClassificationService,
+    CoverageAuditService,
+    DiscoveryCacheService,
+    NowInTheatersValidatorService,
+    NowInTheatersAuditService,
+    OttValidatorService,
+    IndianOttRegistryService,
+    EvidenceVerificationAuthorityService
   ],
   exports: [
     ResearchService, 
@@ -32,7 +46,14 @@ import { TheatricalValidatorService } from './services/theatrical-validator.serv
     ImdbCrosscheckProvider, 
     TheatricalValidatorService, 
     ReleaseDiscoveryService, 
-    MovieClassificationService
+    MovieClassificationService,
+    CoverageAuditService,
+    DiscoveryCacheService,
+    NowInTheatersValidatorService,
+    NowInTheatersAuditService,
+    OttValidatorService,
+    IndianOttRegistryService,
+    EvidenceVerificationAuthorityService
   ]
 })
 export class ResearchModule {}

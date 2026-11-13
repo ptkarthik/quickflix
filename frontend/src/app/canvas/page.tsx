@@ -1,6 +1,5 @@
 'use client';
 import React, { useState } from 'react';
-import { SidebarLayout } from '@/components/layout/sidebar-layout';
 import { Sparkles, Download, Type, Sliders, Image as ImageIcon, Palette } from 'lucide-react';
 
 export default function CanvasPage() {
@@ -59,7 +58,7 @@ export default function CanvasPage() {
   };
 
   return (
-    <SidebarLayout>
+    <>
       <div className="flex h-full w-full bg-[#0a0a0c] overflow-hidden">
         
         {/* Left Sidebar - Controls */}
@@ -265,6 +264,6 @@ export default function CanvasPage() {
         </div>
 
       </div>
-    </SidebarLayout>
+    </>
   );
 }

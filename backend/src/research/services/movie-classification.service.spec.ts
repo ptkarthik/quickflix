@@ -249,6 +249,124 @@ describe('MovieClassificationService - Leakage & Boundary Tests', () => {
       const result = service.classifyMovie(movie, TODAY);
       expect(result).toBe('UPCOMING_OTT');
     });
+
+    it('shows in Upcoming OTT when confirmed in India with unknown platform (Platform TBA deadlock fix)', () => {
+      const movie: MovieReleaseData = {
+        movieId: 112,
+        title: 'Confirmed Digital Premiere Platform TBA',
+        theatricalReleaseDate: '2026-08-01', // Run ended
+        theatricalStatus: 'ENDED',
+        ottReleaseDate: '2026-11-06',
+        ottDateConfirmed: true,
+        ottPlatforms: [], // No platform known yet
+      };
+
+      const result = service.classifyMovie(movie, TODAY);
+      expect(result).toBe('UPCOMING_OTT');
+      // Assert that no platform was fabricated
+      expect(movie.ottPlatforms).toHaveLength(0);
+    });
+
+    it('rejects confirmed future OTT date if all declared platforms are overseas-only (not available in India)', () => {
+      const movie: MovieReleaseData = {
+        movieId: 113,
+        title: 'Overseas Digital Only',
+        theatricalReleaseDate: '2026-07-01',
+        theatricalStatus: 'ENDED',
+        ottReleaseDate: '2026-11-20',
+        ottDateConfirmed: true,
+        ottPlatforms: [
+          {
+            name: 'Hulu',
+            availableInIndia: false,
+            verified: true,
+            availabilityType: 'SUBSCRIPTION',
+          },
+        ],
+      };
+
+      const result = service.classifyMovie(movie, TODAY);
+      expect(result).toBe('UNCLASSIFIED');
+    });
+
+    it('rejects unverified / rumored OTT date even if date is strictly in future', () => {
+      const movie: MovieReleaseData = {
+        movieId: 114,
+        title: 'Rumored Digital Date',
+        theatricalReleaseDate: '2026-08-01',
+        theatricalStatus: 'ENDED',
+        ottReleaseDate: '2026-11-20',
+        ottDateConfirmed: false, // Unverified
+        ottPlatforms: [],
+      };
+
+      const result = service.classifyMovie(movie, TODAY);
+      expect(result).toBe('UNCLASSIFIED');
+    });
+
+    it('preserves theatrical precedence: currently running theater film does NOT leak into Upcoming OTT', () => {
+      const movie: MovieReleaseData = {
+        movieId: 115,
+        title: 'Blockbuster in Cinemas Now',
+        theatricalReleaseDate: '2026-10-10', // 6 days ago (active in theaters)
+        theatricalStatus: 'CURRENTLY_RUNNING',
+        ottReleaseDate: '2026-11-20',
+        ottDateConfirmed: true,
+        ottPlatforms: [
+          {
+            name: 'Netflix',
+            availableInIndia: true,
+            verified: true,
+            availabilityType: 'SUBSCRIPTION',
+          },
+        ],
+      };
+
+      const result = service.classifyMovie(movie, TODAY);
+      expect(result).toBe('NOW_IN_THEATERS');
+      expect(result).not.toBe('UPCOMING_OTT');
+    });
+
+    it('preserves theatrical precedence: upcoming theatrical release takes precedence over future OTT', () => {
+      const movie: MovieReleaseData = {
+        movieId: 116,
+        title: 'Upcoming Big Screen First',
+        theatricalReleaseDate: '2026-10-25', // In theaters next week
+        theatricalStatus: 'UPCOMING',
+        ottReleaseDate: '2026-12-15', // OTT 2 months later
+        ottDateConfirmed: true,
+        ottPlatforms: [],
+        originalLanguage: 'ta',
+        industries: ['Kollywood'],
+      };
+
+      const result = service.classifyMovie(movie, TODAY);
+      expect(result).toBe('UPCOMING_THEATRICAL');
+      expect(result).not.toBe('UPCOMING_OTT');
+    });
+
+    it('does NOT classify a movie as Now Streaming merely because a future OTT date and platform exist', () => {
+      const movie: MovieReleaseData = {
+        movieId: 117,
+        title: 'Future Streaming Release',
+        theatricalStatus: 'ENDED',
+        theatricalReleaseDate: '2026-06-01',
+        ottReleaseDate: '2026-11-15', // Strictly future
+        ottDateConfirmed: true,
+        ottPlatforms: [
+          {
+            name: 'Prime Video',
+            availableInIndia: true,
+            verified: true,
+            availabilityType: 'SUBSCRIPTION',
+          },
+        ],
+      };
+
+      const result = service.classifyMovie(movie, TODAY);
+      expect(result).toBe('UPCOMING_OTT');
+      expect(result).not.toBe('NOW_STREAMING');
+    });
   });
 
   describe('Strict Indian Theatrical Validator (validateUpcomingTheatrical)', () => {
@@ -330,6 +448,204 @@ describe('MovieClassificationService - Leakage & Boundary Tests', () => {
       expect(res.isValid).toBe(true);
       expect(res.auditDetails?.daysUntilRelease).toBe(21);
       expect(res.auditDetails?.isIndianProduction).toBe(true);
+    });
+  });
+
+  describe('Phase 2 — Upcoming OTT TV-Series Discovery & Canonical Identity', () => {
+    it('classifies upcoming Indian new TV series premiere as UPCOMING_OTT', () => {
+      const category = service.classifyMovie({
+        movieId: 'tmdb:tv:1001',
+        title: 'Student of the Year: After Dark',
+        originalLanguage: 'hi',
+        industries: ['Bollywood'],
+        isDirectToOtt: true,
+        ottReleaseDate: '2026-11-13',
+        ottDateConfirmed: true,
+        ottPlatforms: [{
+          name: 'Disney+ Hotstar',
+          availableInIndia: true,
+          verified: true,
+          availabilityType: 'SUBSCRIPTION',
+          availableFrom: '2026-11-13'
+        }]
+      }, TODAY);
+
+      expect(category).toBe('UPCOMING_OTT');
+    });
+
+    it('classifies upcoming international TV series premiere with Platform TBA as UPCOMING_OTT', () => {
+      const category = service.classifyMovie({
+        movieId: 'tmdb:tv:2002',
+        title: 'The Remarried Empress',
+        originalLanguage: 'ko',
+        industries: ['Other'],
+        isDirectToOtt: true,
+        ottReleaseDate: '2026-11-04',
+        ottDateConfirmed: true,
+        ottPlatforms: [] // Platform TBA
+      }, TODAY);
+
+      expect(category).toBe('UPCOMING_OTT');
+    });
+
+    it('classifies upcoming new season of existing series as UPCOMING_OTT', () => {
+      const category = service.classifyMovie({
+        movieId: 'tmdb:tv:93405',
+        title: 'Squid Game (Season 3)',
+        originalLanguage: 'ko',
+        industries: ['Other'],
+        isDirectToOtt: true,
+        ottReleaseDate: '2026-12-15',
+        ottDateConfirmed: true,
+        ottPlatforms: [{
+          name: 'Netflix',
+          availableInIndia: true,
+          verified: true,
+          availabilityType: 'SUBSCRIPTION',
+          availableFrom: '2026-12-15'
+        }]
+      }, TODAY);
+
+      expect(category).toBe('UPCOMING_OTT');
+    });
+
+    it('rejects past first-air date from being treated as upcoming OTT', () => {
+      // Series first aired in 2021 with no future season date
+      const category = service.classifyMovie({
+        movieId: 'tmdb:tv:93405',
+        title: 'Past Air Date Series',
+        originalLanguage: 'en',
+        isDirectToOtt: true,
+        ottReleaseDate: '2021-09-17', // in the past!
+        ottDateConfirmed: true,
+        ottPlatforms: [{
+          name: 'Netflix',
+          availableInIndia: true,
+          verified: true,
+          availabilityType: 'SUBSCRIPTION'
+        }]
+      }, TODAY);
+
+      // Must be classified as NOW_STREAMING (if active in India) or UNCLASSIFIED, NEVER UPCOMING_OTT
+      expect(category).not.toBe('UPCOMING_OTT');
+    });
+
+    it('excludes series with unknown or unverified release dates from UPCOMING_OTT', () => {
+      const category = service.classifyMovie({
+        movieId: 'tmdb:tv:5555',
+        title: 'Rumored Speculative Series',
+        originalLanguage: 'hi',
+        isDirectToOtt: true,
+        ottReleaseDate: undefined,
+        ottDateConfirmed: false,
+        ottPlatforms: [{
+          name: 'Prime Video',
+          availableInIndia: true,
+          verified: false // unverified rumor
+        }]
+      }, TODAY);
+
+      expect(category).toBe('UNCLASSIFIED');
+    });
+
+    it('ensures movie and TV series sharing the same numeric TMDB ID have distinct canonical identities and do not collide', () => {
+      const movieData: MovieReleaseData = {
+        movieId: 'tmdb:12345',
+        title: 'Action Movie 12345',
+        originalLanguage: 'ta',
+        theatricalReleaseDate: '2026-11-06',
+        theatricalStatus: 'UPCOMING',
+        ottPlatforms: [],
+        ottDateConfirmed: false,
+      };
+
+      const tvData: MovieReleaseData = {
+        movieId: 'tmdb:tv:12345',
+        title: 'Action Series 12345',
+        originalLanguage: 'ta',
+        isDirectToOtt: true,
+        ottReleaseDate: '2026-11-20',
+        ottDateConfirmed: true,
+        ottPlatforms: [{
+          name: 'Netflix',
+          availableInIndia: true,
+          verified: true,
+          availabilityType: 'SUBSCRIPTION',
+          availableFrom: '2026-11-20'
+        }],
+      };
+
+      const movieCategory = service.classifyMovie(movieData, TODAY);
+      const tvCategory = service.classifyMovie(tvData, TODAY);
+
+      expect(movieCategory).toBe('UPCOMING_THEATRICAL');
+      expect(tvCategory).toBe('UPCOMING_OTT');
+      expect(movieData.movieId).not.toBe(tvData.movieId);
+      expect(movieData.movieId).toBe('tmdb:12345');
+      expect(tvData.movieId).toBe('tmdb:tv:12345');
+    });
+
+    it('preserves tab mutual exclusivity when both movies and series are present', () => {
+      const items: Array<{ data: MovieReleaseData; expected: MovieCategory }> = [
+        {
+          data: {
+            movieId: 'tmdb:101',
+            title: 'Theatrical Big Hit',
+            theatricalReleaseDate: '2026-11-06',
+            theatricalStatus: 'UPCOMING',
+            ottPlatforms: [],
+            ottDateConfirmed: false
+          },
+          expected: 'UPCOMING_THEATRICAL'
+        },
+        {
+          data: {
+            movieId: 'tmdb:tv:101',
+            title: 'Streaming Hit Series',
+            isDirectToOtt: true,
+            ottReleaseDate: '2026-11-13',
+            ottDateConfirmed: true,
+            ottPlatforms: [{ name: 'Prime Video', availableInIndia: true, verified: true }]
+          },
+          expected: 'UPCOMING_OTT'
+        },
+        {
+          data: {
+            movieId: 'tmdb:201',
+            title: 'Active Cinema Release',
+            theatricalReleaseDate: '2026-10-10',
+            theatricalStatus: 'CURRENTLY_RUNNING',
+            ottPlatforms: [],
+            ottDateConfirmed: false
+          },
+          expected: 'NOW_IN_THEATERS'
+        },
+        {
+          data: {
+            movieId: 'tmdb:tv:301',
+            title: 'Currently Streaming Series',
+            isDirectToOtt: true,
+            ottReleaseDate: '2026-09-01',
+            ottDateConfirmed: true,
+            ottPlatforms: [{ name: 'Netflix', availableInIndia: true, verified: true, availabilityType: 'SUBSCRIPTION', availableFrom: '2026-09-01' }]
+          },
+          expected: 'NOW_STREAMING'
+        }
+      ];
+
+      const classified = items.map(i => ({
+        id: i.data.movieId,
+        category: service.classifyMovie(i.data, TODAY),
+        expected: i.expected
+      }));
+
+      for (const item of classified) {
+        expect(item.category).toBe(item.expected);
+      }
+
+      // Check zero collision in ID set
+      const idSet = new Set(classified.map(c => c.id));
+      expect(idSet.size).toBe(items.length);
     });
   });
 });

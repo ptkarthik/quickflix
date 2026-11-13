@@ -21,6 +21,10 @@ backend/test-*.js
 backend/debug-*.js
 backend/rebuild*.js
 backend/append_tests.js
+.cache/
+backend/.cache/
+*.cache.json
+discovery-snapshot*.json
 
 # Next.js build output
 frontend/.next/
@@ -38,3 +42,19 @@ yarn-error.log*
 Thumbs.db
 .vscode/
 .idea/
+
+# Local database + backups (your data — back it up, never commit; can exceed GitHub's 100 MB limit)
+*.db
+*.db-journal
+*.db.backup-*
+dev.db.backup-*
+
+# Backend build output (rebuilt on start)
+backend/dist/
+
+# Runtime data, caches and tokens written by the backend
+backend/data/
+backend/.instagram-token.json
+
+# Local scratch
+*.tmp.ts

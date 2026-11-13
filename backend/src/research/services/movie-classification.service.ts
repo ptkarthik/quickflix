@@ -219,11 +219,19 @@ export class MovieClassificationService {
       this.isValidDateStr(movie.theatricalReleaseDate) &&
       movie.theatricalReleaseDate! <= today;
 
+    // Platform eligibility for Indian OTT:
+    // If specific platforms are declared, at least one must be verified and available in India
+    // (this rejects titles that are exclusively overseas, e.g. Hulu in US only, or unverified rumors).
+    // If no platforms are listed yet (empty array), the platform is TBA for a confirmed Indian digital release.
+    const hasIndianPlatformOrTba =
+      movie.ottPlatforms.length === 0 ||
+      movie.ottPlatforms.some((p) => p.availableInIndia && p.verified);
+
     const hasConfirmedFutureOtt =
       movie.ottDateConfirmed &&
       this.isValidDateStr(movie.ottReleaseDate) &&
       movie.ottReleaseDate! > today &&
-      movie.ottPlatforms.some((p) => p.availableInIndia && p.verified);
+      hasIndianPlatformOrTba;
 
     // Quarantine Rule: Conflicting, uncertain, or uncorroborated records enter PENDING_VALIDATION
     if (movie.dateConflictDetected || movie.uncorroboratedDate) {
@@ -238,8 +246,9 @@ export class MovieClassificationService {
     }
 
     // Rule 3: UPCOMING_OTT
-    // Show movies with confirmed future Indian OTT date whose theatrical run has ended or direct-to-OTT
-    if (hasConfirmedFutureOtt && !isTheatricalCurrentlyRunning) {
+    // Show movies with confirmed future Indian OTT date whose theatrical run has ended, never had a theatrical run, or direct-to-OTT
+    // If a movie has an upcoming theatrical release (and is not direct-to-OTT), theatrical exhibition takes precedence (Rule 4)
+    if (hasConfirmedFutureOtt && !isTheatricalCurrentlyRunning && (!isTheatricalUpcoming || movie.isDirectToOtt)) {
       return 'UPCOMING_OTT';
     }
 

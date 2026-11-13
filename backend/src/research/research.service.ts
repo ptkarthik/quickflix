@@ -2,13 +2,15 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { TmdbProvider } from './providers/tmdb.provider';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReleaseDiscoveryService } from './services/release-discovery.service';
+import { DiscoveryCacheService } from './services/discovery-cache.service';
 
 @Injectable()
 export class ResearchService {
   constructor(
     private readonly tmdbProvider: TmdbProvider,
     private readonly releaseDiscovery: ReleaseDiscoveryService,
-    private readonly prisma: PrismaService
+    private readonly prisma: PrismaService,
+    private readonly discoveryCache: DiscoveryCacheService
   ) {}
 
   async search(projectId: string) {
@@ -35,11 +37,14 @@ export class ResearchService {
 
   async getUpcomingOttIndia() {
     const all = await this.discoverAll();
-    return all.upcomingOTT;
+    if ('status' in all && all.status === 'INITIALIZING') {
+      return all;
+    }
+    return (all as any).upcomingOTT || [];
   }
 
   async discoverAll() {
-    return this.releaseDiscovery.discoverAll();
+    return this.discoveryCache.getSnapshotResponse();
   }
 
   async getMovieDetails(tmdbId: string | number) {

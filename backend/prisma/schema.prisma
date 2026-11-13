@@ -152,6 +152,67 @@ model GeneratedContent {
   updatedAt     DateTime     @updatedAt
 }
 
+// OTT release desk: every item is manually reviewed before it is shown or posted.
+model OttRelease {
+  id            String    @id @default(uuid())
+  title         String
+  contentType   String    @default("movie") // movie | tv
+  seasonNumber  Int?
+  language      String?   // ISO code: ta, te, ml, hi, kn, en ...
+  platform      String?   // Netflix, Prime Video, JioHotstar, SonyLIV, ZEE5, Aha, Sun NXT ...
+  releaseDate   String?   // YYYY-MM-DD (India)
+  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  origin        String    @default("MANUAL")  // MANUAL | NEWS | TMDB
+  sourceUrl     String?
+  sourceName    String?
+  headline      String?   // raw headline the item was extracted from
+  tmdbId        Int?
+  posterPath    String?   // TMDB poster path, e.g. /abc.jpg
+  overview      String?
+  genres        String?   // TMDB genre names, comma list (drives the automatic post theme)
+  notes         String?
+  // Your own verdict for posts. Never written by AI or collectors. myRating: 0-5 in 0.5 steps.
+  myRating      Float?
+  myReview      String?
+  dedupeKey     String    @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Dubbed versions are separate releases: null = original-language release, else the dub's language code.
+  dubLanguage     String?
+  // Year the title first released anywhere (TMDB). Lets us say "new to Netflix (2016 film)" instead of "new release".
+  originalYear    Int?
+  // Trust level computed from evidence: CONFIRMED | CORROBORATED | REPORTED | CONFLICT
+  trust           String    @default("REPORTED")
+  trustReason     String?
+  // true once a human edited platform/date: collectors then never overwrite them.
+  userLocked      Boolean   @default(false)
+  // Live availability in India (TMDB/JustWatch watch providers): LIVE | NOT_LIVE | UNKNOWN
+  liveStatus      String    @default("UNKNOWN")
+  livePlatforms   String?   // comma-separated platforms currently streaming it in India
+  liveFirstSeenAt DateTime?
+  liveCheckedAt   DateTime?
+
+  evidence        OttEvidence[]
+}
+
+// One row per source claim. Trust is recomputed from these.
+model OttEvidence {
+  id              String     @id @default(uuid())
+  release         OttRelease @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  releaseId       String
+  sourceType      String     // OFFICIAL_YOUTUBE | TMDB_RELEASE | TMDB_LIVE | NEWS | MANUAL
+  sourceKey       String     // independence key, e.g. "official:Prime Video", "news:NDTV", "tmdb"
+  sourceName      String?
+  sourceUrl       String?
+  claimedPlatform String?
+  claimedDate     String?    // YYYY-MM-DD
+  text            String?    // headline / video title / provider list
+  observedAt      DateTime   @default(now())
+
+  @@unique([releaseId, sourceType, sourceKey, sourceUrl])
+}
+
 model EditedContent {
   id          String       @id @default(uuid())
   project     MovieProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -162,4 +223,232 @@ model EditedContent {
   updatedAt   DateTime     @updatedAt
 
   @@unique([projectId, type])
+}
+
+// Every post published to Instagram from the app (prevents double-posting; shows what went out).
+model InstagramPost {
+  id         String   @id @default(uuid())
+  requestId  String   @unique
+  releaseId  String?
+  kind       String   // single | weekly | picks
+  mediaId    String
+  permalink  String?
+  caption    String
+  imageCount Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  @@index([releaseId])
+}
+
+/// Posts made to Facebook / YouTube (Instagram photo posts keep their own table above).
+model SocialPost {
+  id         String   @id @default(uuid())
+  requestId  String   @unique
+  channel    String   // facebook | youtube
+  format     String   // photo | carousel | reel | short
+  releaseId  String?
+  kind       String
+  externalId String
+  permalink  String?
+  caption    String
+  mediaCount Int      @default(1)
+  createdAt  DateTime @default(now())
+
+  @@index([releaseId])
+  @@index([channel, createdAt])
+}
+
+// ───────────── Cinema Desk: theatrical releases in India (same evidence/trust model as OTT) ─────────────
+model CinemaRelease {
+  id            String    @id @default(uuid())
+  title         String
+  language      String?   // original language code (ta, te, hi, ml, kn, en…)
+  alsoIn        String?   // other languages it releases in, comma list (pan-India / dubbed), e.g. "te,hi"
+  releaseDate   String?   // India theatrical date YYYY-MM-DD
+  status        String    @default("PENDING") // PENDING | APPROVED | REJECTED
+  trust         String    @default("REPORTED") // CONFIRMED | CORROBORATED | REPORTED | CONFLICT
+  trustReason   String?
+  userLocked    Boolean   @default(false)
+  // Postponement watcher
+  previousDate  String?   // last different date we had (shown as "was …")
+  dateChangedAt DateTime?
+  dateHistory   String?   // JSON [{date, at, by}]
+  // Details
+  tmdbId        Int?
+  posterPath    String?
+  overview      String?
+  genres        String?   // TMDB genre names, comma list
+  certificate   String?   // CBFC: U | UA | UA 13+ | A …
+  runtime       Int?      // minutes
+  production    String?
+  ottDate       String?   // India digital date if known (moves it out of "now in cinemas")
+  origin        String    @default("TMDB") // TMDB | WIKIPEDIA | NEWS | OFFICIAL | MANUAL
+  notes         String?
+  myRating      Float?
+  myReview      String?
+  dedupeKey     String    @unique
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  evidence      CinemaEvidence[]
+
+  @@index([status, releaseDate])
+}
+
+model CinemaEvidence {
+  id          String        @id @default(uuid())
+  release     CinemaRelease @relation(fields: [releaseId], references: [id], onDelete: Cascade)
+  releaseId   String
+  sourceType  String        // TMDB_THEATRICAL | WIKIPEDIA | OFFICIAL_YOUTUBE | NEWS | MANUAL
+  sourceKey   String        // independence key: tmdb | wikipedia | yt:@handle | news:<publisher> | manual
+  sourceName  String?
+  sourceUrl   String?
+  claimedDate String?       // YYYY-MM-DD
+  postponed   Boolean       @default(false) // source says the release was postponed/delayed
+  text        String?
+  observedAt  DateTime      @default(now())
+
+  @@unique([releaseId, sourceType, sourceKey, sourceUrl])
+}
+
+/// World Movies & Series database (merged from global-movie-intelligence). Facts from TMDB, ratings from OMDb (IMDb/RT)
+/// and TMDB — each labelled with its source. Only APPROVED titles are used in posts.
+model WorldTitle {
+  id                 String    @id @default(uuid())
+  kind               String    // movie | tv
+  tmdbId             Int
+  imdbId             String?
+  title              String
+  originalTitle      String?
+  year               Int?
+  releaseDate        String?   // first release / first air date (YYYY-MM-DD)
+  language           String?   // original language code
+  countries          String?   // ISO codes, comma separated (origin countries)
+  genres             String?   // TMDB genre names, comma separated
+  overview           String?
+  posterPath         String?
+  backdropPath       String?
+  runtime            Int?      // minutes (movies) / typical episode length (tv)
+  seasons            Int?
+  episodes           Int?
+  seriesType         String?   // Scripted, Miniseries, Reality, …
+  people             String?   // director (movie) / creators (tv)
+  tmdbRating         Float?
+  tmdbVotes          Int?
+  popularity         Float?
+  imdbRating         Float?
+  imdbVotes          Int?
+  rtCritics          Int?      // Rotten Tomatoes critics %
+  score              Float?    // the rating shown & ranked on: IMDb when OMDb has it, else TMDB
+  scoreSource        String?   // IMDb | TMDB
+  scoreVotes         Int?
+  providersIn        String?   // JSON: [{name, type}] — where to watch in India (TMDB/JustWatch)
+  metascore          Int?      // Metacritic (OMDb / Wikidata)
+  extRatings         String?   // JSON: other free sources {tvmaze, anilist, mal, letterboxd, …: {value, votes, url, via}}
+  rank               Float?    // "Best rated" order: score weighted by votes, so 9.9 from 5 votes doesn't top the list
+  tvStatus           String?   // tv: Returning Series / Ended / Canceled (TMDB)
+  imdbType           String?   // IMDb's own title type: movie, tvMovie, tvSpecial, tvEpisode, tvMiniSeries, short, video …
+  trailerKey         String?   // official trailer (YouTube key from TMDB) for the Watch Free site
+  trailerCheckedAt   DateTime?
+  tmdbCheckedAt      DateTime?
+  omdbCheckedAt      DateTime?
+  status             String    @default("PENDING") // PENDING | APPROVED | REJECTED (approval only gates posts)
+  origin             String    @default("TMDB")    // IMPORT | TMDB | MANUAL
+  myRating           Float?
+  myReview           String?
+  notes              String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([kind, tmdbId])
+  @@index([kind, status])
+  @@index([kind, language])
+  @@index([kind, year])
+  @@index([kind, imdbRating])
+  @@index([kind, tmdbRating])
+  @@index([kind, score])
+  @@index([kind, rank])
+  @@index([imdbId])
+}
+
+/// IMDb's own daily ratings file (datasets.imdbws.com/title.ratings.tsv.gz — free, personal/non-commercial use).
+model ImdbRating {
+  tconst  String @id
+  rating  Float
+  votes   Int
+}
+
+/// Per-title extras for posts on every desk (OTT / Cinema / World): your chosen one-liner and which ratings to show,
+/// plus web facts looked up on demand (TMDB tagline, OMDb plot/awards/ratings, Wikipedia matched via IMDb id).
+model TitleExtra {
+  id                 String    @id @default(uuid())
+  domain             String    // ott | cinema | world
+  refId              String
+  oneLiner           String?
+  oneLinerSource     String?   // manual | tagline | plot | awards | wikipedia | ai
+  ratingsShown       String?   // JSON array: my | imdb | rt | metacritic | tmdb | custom
+  customRatingLabel  String?   // e.g. "Letterboxd"
+  customRatingValue  String?   // e.g. "4.6/5"
+  imdbId             String?
+  tagline            String?
+  omdbPlot           String?
+  awards             String?
+  wikiTitle          String?
+  wikiUrl            String?
+  wikiSentence       String?
+  imdbRating         Float?
+  imdbVotes          Int?
+  rtCritics          Int?
+  metascore          Int?
+  tmdbRating         Float?
+  tmdbVotes          Int?
+  extRatings         String?   // JSON: other free sources (TVmaze, AniList, MyAnimeList, MDBList: Letterboxd/Trakt/RT audience…)
+  links              String?   // JSON: {imdb, rt, metacritic, letterboxd, mal, …} pages to check a rating yourself
+  wikidataId         String?
+  webCheckedAt       DateTime?
+  webNote            String?   // why something couldn't be looked up
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@unique([domain, refId])
+}
+
+/// Free & legal full movies for the client "Watch Free" site: official YouTube channel uploads (you choose the channels)
+/// and public-domain films on the Internet Archive. Nothing is hosted by us — videos play from the original uploader.
+model FreeVideo {
+  id           String   @id @default(uuid())
+  source       String   // youtube | archive
+  externalId   String   // YouTube video id / Internet Archive identifier
+  title        String
+  channel      String?
+  channelId    String?
+  year         Int?
+  minutes      Int?
+  thumbnail    String?
+  description  String?
+  language     String?
+  license      String?  // archive: the public-domain mark it carries
+  embeddable   Boolean  @default(true)
+  views        Int?
+  publishedAt  String?
+  status       String   @default("PENDING") // PENDING | APPROVED | REJECTED — only APPROVED appear on the site
+  worldTitleId String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  @@unique([source, externalId])
+  @@index([source, status])
+}
+
+/// Official YouTube channels you trust to post full movies legally (you add each one).
+model WatchChannel {
+  id           String    @id @default(uuid())
+  channelId    String    @unique
+  title        String
+  handle       String?
+  subscribers  Int?
+  thumbnail    String?
+  enabled      Boolean   @default(true)
+  lastScanAt   DateTime?
+  lastScanNote String?
+  createdAt    DateTime  @default(now())
 }

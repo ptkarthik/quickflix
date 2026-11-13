@@ -1,4 +1,12 @@
 import { Module } from '@nestjs/common';
+import { WorldModule } from './world/world.module';
+import { ExtrasModule } from './extras/extras.module';
+import { ReelsModule } from './reels/reels.module';
+import { PublishModule } from './publish/publish.module';
+import { WatchModule } from './watch/watch.module';
+import { OnThisDayModule } from './onthisday/onthisday.module';
+import { GrowthModule } from './growth/growth.module';
+import { TrendsModule } from './trends/trends.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
@@ -14,6 +22,9 @@ import { SettingsModule } from './settings/settings.module';
 import { SocialModule } from './social/social.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { CreativeModule } from './creative/creative.module';
+import { OttModule } from './ott/ott.module';
+import { CinemaModule } from './cinema/cinema.module';
+import { MediaModule } from './media/media.module';
 
 @Module({
   imports: [
@@ -28,6 +39,17 @@ import { CreativeModule } from './creative/creative.module';
     SocialModule,
     AnalyticsModule,
     CreativeModule,
+    OttModule,
+    CinemaModule,
+    MediaModule,
+    WorldModule,
+    ExtrasModule,
+    ReelsModule,
+    PublishModule,
+    WatchModule,
+    OnThisDayModule,
+    GrowthModule,
+    TrendsModule,
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',

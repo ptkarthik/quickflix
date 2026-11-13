@@ -3,3 +3,14 @@ node_modules
 .env
 
 /generated/prisma
+
+# Background discovery cache snapshots
+.cache/
+*.cache.json
+discovery-snapshot*.json
+
+# Refreshed Instagram access token (secret)
+.instagram-token.json
+
+# IMDb daily ratings file (downloaded)
+data/

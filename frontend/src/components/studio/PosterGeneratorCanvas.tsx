@@ -301,6 +301,9 @@ export function PosterGeneratorCanvas({ movie, onClose }: PosterGeneratorProps) 
       pixelRatio: 2,
       skipFonts: true,
       cacheBust: false,
+      // All images go through /api/proxy-image?url=…; without this, html-to-image's session-wide cache
+      // ignores the query string and can reuse a previous movie's poster in the export.
+      includeQueryParams: true,
       imagePlaceholder: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
       style: { transform: 'scale(1)', transformOrigin: 'top left' }
     });
