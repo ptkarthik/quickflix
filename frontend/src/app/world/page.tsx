@@ -1,4 +1,5 @@
 'use client';
+import { Overlay } from '@/components/ott/Overlay';
 /* eslint-disable @next/next/no-img-element */
 import React, { useEffect, useState } from 'react';
 import { Check, ChevronLeft, ChevronRight, Film, ImagePlus, Loader2, Plus, Radar, Search, ShieldCheck, Tv, X } from 'lucide-react';
@@ -27,14 +28,15 @@ function AddFromTmdb({ kind, onAdded }: { kind: WorldKind; onAdded: (t: WorldTit
   const [busy, setBusy] = useState<string | null>(null);
   if (!open) return <button onClick={() => setOpen(true)} className="flex items-center gap-1.5 rounded-md bg-slate-800 hover:bg-slate-700 px-3 py-1.5 text-xs"><Plus className="w-3.5 h-3.5" /> Add from TMDB</button>;
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 p-4 pt-24" onClick={() => setOpen(false)}>
+    <Overlay onEscape={() => setOpen(false)}>
+    <div className="fixed inset-0 z-[80] flex items-start justify-center bg-black/70 p-4 pt-24" onClick={() => setOpen(false)}>
       <div className="w-full max-w-xl rounded-xl border border-slate-700 bg-slate-900 p-5 space-y-3" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between"><h3 className="font-bold">Add a {kind === 'tv' ? 'series' : 'movie'} from TMDB</h3><button onClick={() => setOpen(false)}><X className="w-5 h-5 text-slate-400" /></button></div>
         <form className="flex gap-2" onSubmit={async e => { e.preventDefault(); setBusy('search'); setHits(await worldApi.search(q, kind).catch(() => [])); setBusy(null); }}>
           <input autoFocus value={q} onChange={e => setQ(e.target.value)} placeholder="Title…" className="flex-1 rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm" />
           <button className="rounded-md bg-indigo-600 px-3 text-sm flex items-center gap-1">{busy === 'search' ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />} Search</button>
         </form>
-        <ul className="max-h-96 overflow-y-auto space-y-1">
+        <ul className="max-h-[60vh] overflow-y-auto overscroll-contain space-y-1">
           {hits?.length === 0 && <li className="text-sm text-slate-500">Nothing found.</li>}
           {hits?.map(h => (
             <li key={`${h.kind}${h.tmdbId}`} className="flex items-center gap-3 rounded-md px-2 py-1.5 hover:bg-slate-800">
@@ -49,6 +51,7 @@ function AddFromTmdb({ kind, onAdded }: { kind: WorldKind; onAdded: (t: WorldTit
         </ul>
       </div>
     </div>
+    </Overlay>
   );
 }
 

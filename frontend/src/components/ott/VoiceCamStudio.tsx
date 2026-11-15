@@ -1,7 +1,7 @@
 'use client';
 import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Camera, Headphones, Loader2, Mic, Play, RotateCcw, Square, Wand2, X } from 'lucide-react';
+import { Camera, Headphones, Loader2, Mic, Pause, Play, RotateCcw, Square, Wand2, X } from 'lucide-react';
 import { apiFetch } from '@/lib/api';
 
 type Shape = 'circle' | 'box';
@@ -17,6 +17,7 @@ function pipBox(shape: Shape, pos: Pos, size: number) {
   const y = pos === 'tr' || pos === 'tl' ? TOP : RH - BOTTOM - h;
   return { w, h, x, y };
 }
+interface Hold { at: number; dur: number }
 const POS_LABEL: Record<Pos, string> = { tr: 'Top right', tl: 'Top left', br: 'Bottom right', bl: 'Bottom left', bc: 'Bottom centre' };
 
 /**
@@ -35,7 +36,13 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
   const [bgVolume, setBgVolume] = useState(0.5);
   const [phase, setPhase] = useState<'idle' | 'ready' | 'countdown' | 'intro' | 'reel'>('idle');
   const [count, setCount] = useState(0);
-  const [rec, setRec] = useState<{ blob: Blob; url: string; split: number; hasCam: boolean; seconds: number } | null>(null);
+  const [rec, setRec] = useState<{ blob: Blob; url: string; split: number; hasCam: boolean; seconds: number; holds: Hold[] } | null>(null);
+  // "Hold & talk": the Reel pauses on the current slide while you keep talking; that moment is held longer in the final video.
+  const [holding, setHolding] = useState(false);
+  const [holdSecs, setHoldSecs] = useState(0);
+  const holdsRef = useRef<Hold[]>([]);
+  const holdStart = useRef<{ t: number; at: number } | null>(null);
+  const holdTick = useRef<number | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [liveCam, setLiveCam] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -50,7 +57,7 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
   const discard = useRef(false);
 
   const stopTracks = () => { stream.current?.getTracks().forEach(t => t.stop()); stream.current = null; };
-  const clearTimers = () => { timers.current.forEach(t => clearTimeout(t)); timers.current = []; };
+  const clearTimers = () => { timers.current.forEach(t => clearTimeout(t)); timers.current = []; if (holdTick.current) { clearInterval(holdTick.current); holdTick.current = null; } };
   useEffect(() => () => { clearTimers(); stopTracks(); }, []);
   useEffect(() => () => { if (rec) URL.revokeObjectURL(rec.url); }, [rec]);
 
@@ -77,7 +84,37 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
   };
   const close = () => { clearTimers(); if (recorder.current?.state === 'recording') recorder.current.stop(); stopTracks(); setPhase('idle'); };
 
-  const finish = () => { if (recorder.current?.state === 'recording') recorder.current.stop(); };
+  const endHold = () => {
+    if (!holdStart.current) return;
+    holdsRef.current.push({ at: holdStart.current.at, dur: (performance.now() - holdStart.current.t) / 1000 });
+    holdStart.current = null;
+    if (holdTick.current) { clearInterval(holdTick.current); holdTick.current = null; }
+    setHolding(false);
+  };
+  /** Pause the Reel on this moment and keep talking — or carry on. */
+  const toggleHold = () => {
+    const v = reelEl.current;
+    if (!v || phase !== 'reel') return;
+    if (holdStart.current) {
+      endHold();
+      v.play().catch(() => null);
+      return;
+    }
+    if (v.ended) return;
+    v.pause();
+    holdStart.current = { t: performance.now(), at: v.currentTime };
+    setHolding(true);
+    setHoldSecs(0);
+    holdTick.current = window.setInterval(() => setHoldSecs(holdStart.current ? (performance.now() - holdStart.current.t) / 1000 : 0), 200);
+  };
+  const finish = () => { endHold(); if (recorder.current?.state === 'recording') recorder.current.stop(); };
+  // Space bar = hold / continue while recording
+  useEffect(() => {
+    if (phase !== 'reel') return;
+    const onKey = (e: KeyboardEvent) => { if (e.code === 'Space') { e.preventDefault(); toggleHold(); } };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  });
 
   const start = () => {
     if (!stream.current) return;
@@ -97,6 +134,8 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
     const mime = (hasCam ? ['video/webm;codecs=vp8,opus', 'video/webm'] : ['audio/webm;codecs=opus', 'audio/webm']).find(m => MediaRecorder.isTypeSupported(m)) || '';
     chunks.current = [];
     tPlay.current = null;
+    holdsRef.current = [];
+    holdStart.current = null;
     const r = new MediaRecorder(s, mime ? { mimeType: mime, videoBitsPerSecond: 2_500_000 } : undefined);
     recorder.current = r;
     r.ondataavailable = e => { if (e.data.size) chunks.current.push(e.data); };
@@ -114,7 +153,8 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
       if (discard.current) { discard.current = false; reelEl.current?.pause(); stopTracks(); setPhase('idle'); return; }
       const blob = new Blob(chunks.current, { type: mime || 'video/webm' });
       const split = Math.max(0, ((tPlay.current ?? tRec.current) - tRec.current) / 1000);
-      setRec(prev => { if (prev) URL.revokeObjectURL(prev.url); return { blob, url: URL.createObjectURL(blob), split, hasCam, seconds: (performance.now() - tRec.current) / 1000 }; });
+      const holds = holdsRef.current.filter(h => h.dur >= 0.3);
+      setRec(prev => { if (prev) URL.revokeObjectURL(prev.url); return { blob, url: URL.createObjectURL(blob), split, hasCam, seconds: (performance.now() - tRec.current) / 1000, holds }; });
       reelEl.current?.pause();
       stopTracks();
       setPhase('idle');
@@ -140,7 +180,7 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
       const fd = new FormData();
       fd.append('reel', base.blob, 'reel.mp4');
       fd.append('rec', rec.blob, rec.blob.type.includes('audio') ? 'rec.webm' : 'rec.webm');
-      fd.append('options', JSON.stringify({ split: rec.split, intro: intro > 0, pip: rec.hasCam, shape, pos, size, mirror, voiceVolume, bgVolume }));
+      fd.append('options', JSON.stringify({ split: rec.split, intro: intro > 0, pip: rec.hasCam, shape, pos, size, mirror, voiceVolume, bgVolume, holds: rec.holds }));
       const res = await apiFetch('/reels/voiceover', { method: 'POST', body: fd }, 0);
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || `Failed (${res.status})`);
       const blob = await res.blob();
@@ -161,7 +201,7 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
   return (
     <section className="space-y-2 rounded-lg border border-fuchsia-900/60 bg-fuchsia-950/20 p-3">
       <div className="flex items-center gap-2 font-semibold text-slate-100"><Mic className="w-4 h-4 text-fuchsia-400" /> Add your voice &amp; face</div>
-      <p className="text-[11px] text-slate-400">The Reel plays while you talk — your timing matches what you see. Your own voice / face makes the post original (Instagram recommends original content far more).</p>
+      <p className="text-[11px] text-slate-400">The Reel plays while you talk — your timing matches what you see. Need more time on a slide? Press <b className="text-slate-200">Hold &amp; talk</b> (or the space bar): the Reel waits on that slide while you keep talking, then press it again to carry on — the final video holds that slide exactly as long. Your own voice / face makes the post original (Instagram recommends original content far more).</p>
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-slate-300">
         <label className="flex items-center gap-1.5"><input type="checkbox" checked={cam} onChange={e => { setCam(e.target.checked); if (!e.target.checked) setIntro(0); }} /> <Camera className="w-3.5 h-3.5" /> Webcam</label>
         <label className="flex items-center gap-1.5">Talk-to-camera intro
@@ -185,7 +225,7 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
         </button>
         {rec && !busy && (
           <>
-            <span className="text-emerald-300">Recorded {rec.seconds.toFixed(1)} s{rec.hasCam ? ' with webcam' : ''}</span>
+            <span className="text-emerald-300">Recorded {rec.seconds.toFixed(1)} s{rec.hasCam ? ' with webcam' : ''}{rec.holds.length ? ` · ${rec.holds.length} hold${rec.holds.length > 1 ? 's' : ''} (Reel +${rec.holds.reduce((a, h) => a + h.dur, 0).toFixed(1)} s)` : ''}</span>
             <audio src={rec.url} controls className="h-7" />
           </>
         )}
@@ -202,7 +242,7 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
       {err && <p className="text-xs text-amber-400">{err}</p>}
 
       {live && typeof document !== 'undefined' && createPortal(
-        <div className="fixed inset-0 z-[80] flex flex-col items-center justify-center gap-3 bg-black/90 p-4">
+        <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/90 p-4">
           <div className="relative overflow-hidden rounded-xl border border-slate-700 bg-black" style={{ width: (RW * STAGE_H) / RH, height: STAGE_H }}>
             <video ref={reelEl} src={base.url} muted={!playSound} playsInline className="absolute inset-0 h-full w-full object-cover" />
             {liveCam ? (
@@ -216,9 +256,21 @@ export function VoiceCamStudio({ base, onDone }: { base: ReelResult; onDone: (r:
             {phase === 'countdown' && <div className="absolute inset-0 flex items-center justify-center bg-black/40 text-8xl font-black text-white">{count}</div>}
             {phase === 'intro' && <div className="absolute left-4 top-4 rounded-full bg-red-600 px-3 py-1 text-sm font-bold text-white">● INTRO {count}s</div>}
             {phase === 'reel' && <div className="absolute left-4 top-4 rounded-full bg-red-600 px-3 py-1 text-sm font-bold text-white">● REC</div>}
+            {phase === 'reel' && holding && (
+              <div className="absolute inset-x-0 bottom-0 flex flex-col items-center gap-1 bg-gradient-to-t from-black/80 to-transparent pb-5 pt-10 text-white">
+                <div className="rounded-full bg-amber-500 px-4 py-1 text-sm font-black text-black">⏸ HOLDING · {holdSecs.toFixed(1)} s</div>
+                <div className="text-xs text-white/85">Keep talking — this slide stays on screen. Space / Continue when done.</div>
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {phase === 'ready' && <button onClick={start} className="flex items-center gap-1.5 rounded-full bg-red-600 hover:bg-red-700 px-5 py-2 font-semibold text-white"><Play className="w-4 h-4" /> Start recording</button>}
+            {phase === 'reel' && (
+              <button onClick={toggleHold} title="Space bar"
+                className={`flex items-center gap-1.5 rounded-full px-5 py-2 font-semibold ${holding ? 'bg-emerald-500 text-black' : 'bg-amber-500 text-black hover:bg-amber-400'}`}>
+                {holding ? <><Play className="w-4 h-4" /> Continue</> : <><Pause className="w-4 h-4" /> Hold &amp; talk</>}
+              </button>
+            )}
             {(phase === 'intro' || phase === 'reel') && <button onClick={finish} className="flex items-center gap-1.5 rounded-full bg-slate-200 px-5 py-2 font-semibold text-slate-900"><Square className="w-4 h-4" /> Stop</button>}
             {phase !== 'reel' && phase !== 'intro' && <button onClick={close} className="flex items-center gap-1.5 rounded-full bg-slate-800 px-4 py-2 text-slate-200"><X className="w-4 h-4" /> Cancel</button>}
             {(phase === 'intro' || phase === 'reel') && <button onClick={() => { discard.current = true; clearTimers(); close(); }} className="flex items-center gap-1.5 rounded-full bg-slate-800 px-4 py-2 text-slate-200"><RotateCcw className="w-4 h-4" /> Discard</button>}

@@ -73,3 +73,19 @@ describe('critics — wrong matches', () => {
     expect(nearRelease(null, 1994)).toBe(true);
   });
 });
+
+describe('critics — highlights', () => {
+  it('pulls common positive descriptions, without names', () => {
+    const { highlightPhrases } = require('./critics.util');
+    const h = highlightPhrases([
+      'Rajinikanth is the showstopper in a whistle-worthy mass entertainer',
+      'A gripping, emotional drama with stellar performances',
+      'Stellar performances lift this gripping thriller',
+      'Predictable and dull second half',
+    ]);
+    const texts = h.map((x: { text: string }) => x.text);
+    expect(texts).toEqual(expect.arrayContaining(['Stellar performances', 'Whistle-worthy mass entertainer']));
+    expect(h.find((x: { text: string }) => x.text === 'Stellar performances').count).toBe(2);
+    expect(texts.join(' ')).not.toMatch(/predictable|dull|Rajinikanth/i);
+  });
+});

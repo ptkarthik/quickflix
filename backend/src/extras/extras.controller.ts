@@ -6,6 +6,18 @@ import { ExtrasService } from './extras.service';
 export class ExtrasController {
   constructor(private readonly extras: ExtrasService) {}
 
+  /** Is this link a licensed source? (known platforms / your approved official YouTube channels) */
+  @Post('where/check-link')
+  checkLink(@Body() body: { url?: string }) {
+    return this.extras.checkSourceLink(body?.url || '');
+  }
+
+  /** Where to watch in India, re-checked live (cached 12h): stream / free / rent / buy / official free uploads. */
+  @Get(':domain/:id/where')
+  where(@Param('domain') domain: string, @Param('id') id: string, @Query('force') force?: string) {
+    return this.extras.whereToWatch(domain, id, force === 'true');
+  }
+
   @Post(':domain/batch')
   batch(@Param('domain') domain: string, @Body() body: { ids: string[] }) {
     return this.extras.batch(domain, body?.ids || []);

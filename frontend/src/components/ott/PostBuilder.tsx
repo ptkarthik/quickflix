@@ -1,15 +1,17 @@
 'use client';
+import { ClickToScroll } from './ClickToScroll';
 import React, { useMemo, useState } from 'react';
 import { ArrowDown, ArrowUp, Check, ChevronLeft, ChevronRight, X } from 'lucide-react';
-import { LANGUAGES, OttRelease, addDays, displayTitle, fmtDate, fmtRange, picksCaption, todayIst, weekStart, weeklyCaption } from '@/lib/ott';
+import { LANGUAGES, OTT_CTAS, OttRelease, ottCtaOf, addDays, displayTitle, fmtDate, fmtRange, picksCaption, todayIst, weekStart, weeklyCaption } from '@/lib/ott';
 import { OTT_DOMAIN } from '@/lib/postDomain';
 import { SlideBrand } from './OttSlides';
 import { SinglePostEditor } from './SinglePostEditor';
 import { CarouselComposer, CustomSlide, newCustomSlide } from './CarouselComposer';
 import { HeadingPicker } from './HeadingPicker';
+import { ReadyPosts } from './ReadyPosts';
 
-type Mode = 'weekly' | 'picks' | 'single';
-const MODE_LABEL: Record<Mode, string> = { single: 'Single title (editor)', weekly: 'This Week on OTT', picks: 'Top Picks' };
+type Mode = 'ready' | 'weekly' | 'picks' | 'single';
+const MODE_LABEL: Record<Mode, string> = { ready: '⚡ Ready-made', single: 'Single title (editor)', weekly: 'This Week on OTT', picks: 'Top Picks' };
 
 /** localStorage-backed state. Builders only mount client-side (after data loads), so lazy reads are safe. */
 export function usePersistentState<T>(key: string, initial: T) {
@@ -72,12 +74,13 @@ export function ModeSwitch<M extends string>({ modes, labels, mode, onChange }: 
   );
 }
 
-export function PostBuilder({ approved, initialSingleId, onChanged }: { approved: OttRelease[]; initialSingleId?: string | null; onChanged?: (r: OttRelease) => void }) {
-  const [mode, setMode] = useState<Mode>(initialSingleId ? 'single' : 'weekly');
+export function PostBuilder({ approved, all, initialSingleId, onChanged }: { approved: OttRelease[]; all?: OttRelease[]; initialSingleId?: string | null; onChanged?: (r: OttRelease) => void }) {
+  const [mode, setMode] = useState<Mode>(initialSingleId ? 'single' : 'ready');
   const [brand, setBrand] = usePersistentState<SlideBrand>('ott.brand', { handle: '@yourhandle', accent: '#FACC15' });
   const [extraTags, setExtraTags] = usePersistentState<string>('ott.extraTags', '');
   const [includeOutro, setIncludeOutro] = usePersistentState<boolean>('ott.outro', true);
   const [hideCover, setHideCover] = useState(false);
+  const [cta, setCta] = usePersistentState<string>('ott.cta', 'auto');
   const [customSlides, setCustomSlides] = useState<CustomSlide[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
 
@@ -128,11 +131,13 @@ export function PostBuilder({ approved, initialSingleId, onChanged }: { approved
     .filter(r => !pickFilter || r.title.toLowerCase().includes(pickFilter.toLowerCase()) || (r.platform || '').toLowerCase().includes(pickFilter.toLowerCase()))
     .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''));
 
-  const modeSwitch = <ModeSwitch modes={['single', 'weekly', 'picks'] as Mode[]} labels={MODE_LABEL} mode={mode} onChange={setMode} />;
+  const modeSwitch = <ModeSwitch modes={['ready', 'single', 'weekly', 'picks'] as Mode[]} labels={MODE_LABEL} mode={mode} onChange={setMode} />;
   const brandSection = (
     <BrandSection brand={brand} setBrand={setBrand} extraTags={extraTags} setExtraTags={setExtraTags} carousel={mode !== 'single'}
       hideCover={hideCover} setHideCover={setHideCover} includeOutro={includeOutro} setIncludeOutro={setIncludeOutro} />
   );
+
+  if (mode === 'ready') return <ReadyPosts desk="ott" ott={all || approved} onApprovedOtt={onChanged} brand={brand} extraTags={extraTags} controlsTop={<>{modeSwitch}{brandSection}</>} />;
 
   if (mode === 'single') {
     return (
@@ -147,7 +152,17 @@ export function PostBuilder({ approved, initialSingleId, onChanged }: { approved
     );
   }
 
-  const controls =
+  const ctaSection = (
+    <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <label className="block space-y-1">
+        <span className="text-xs font-bold uppercase tracking-wider text-slate-400">Ending (caption &amp; last slide)</span>
+        <select value={cta} onChange={e => setCta(e.target.value)} className="w-full rounded-md bg-slate-950 border border-slate-700 px-2 py-2 text-sm">
+          {OTT_CTAS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+        </select>
+      </label>
+    </section>
+  );
+  const controls0 =
     mode === 'weekly' ? (
       <section className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Week</h3>
@@ -169,7 +184,7 @@ export function PostBuilder({ approved, initialSingleId, onChanged }: { approved
         {weekItems.length === 0 ? (
           <p className="text-sm text-slate-500">No approved releases dated this week. Approve items in the Review Queue or add them manually.</p>
         ) : (
-          <ul className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
+          <ClickToScroll maxH="max-h-80" count={weekItems.length} noun="titles"><ul className="space-y-1.5">
             {weekItems.map(r => (
               <li key={r.id}>
                 <label className="flex items-center gap-2 text-sm cursor-pointer rounded-md px-2 py-1.5 hover:bg-slate-800">
@@ -180,14 +195,14 @@ export function PostBuilder({ approved, initialSingleId, onChanged }: { approved
                 </label>
               </li>
             ))}
-          </ul>
+          </ul></ClickToScroll>
         )}
       </section>
     ) : (
       <section className="space-y-3 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
         <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400">Heading</h3>
         <HeadingPicker
-          value={{ kicker: coverKicker, heading, sub: coverSub ?? `${picks.length} titles worth your time` }}
+          value={{ kicker: coverKicker, heading, sub: coverSub ?? `${picks.length} title${picks.length === 1 ? '' : 's'} worth your time` }}
           onChange={v => { setHeading(v.heading); setCoverKicker(v.kicker); setCoverSub(v.sub); }}
           ctx={{ n: picks.length || 3, kind: picks.length && picks.every(p => p.contentType === 'tv') ? 'tv' : picks.length && picks.every(p => p.contentType === 'movie') ? 'movie' : 'mixed', desk: 'ott' }}
           edited={heading !== 'Top OTT Picks This Weekend' || coverKicker !== 'OTT picks' || coverSub !== null}
@@ -211,7 +226,7 @@ export function PostBuilder({ approved, initialSingleId, onChanged }: { approved
           ))}
         </ol>
         <input value={pickFilter} onChange={e => setPickFilter(e.target.value)} className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm" placeholder="Search approved titles or platform…" />
-        <ul className="space-y-1 max-h-64 overflow-y-auto pr-1">
+        <ClickToScroll maxH="max-h-64" count={pickPool.length} noun="titles"><ul className="space-y-1">
           {pickPool.map(r => (
             <li key={r.id}>
               <button onClick={() => togglePick(r.id)}
@@ -222,9 +237,10 @@ export function PostBuilder({ approved, initialSingleId, onChanged }: { approved
               </button>
             </li>
           ))}
-        </ul>
+        </ul></ClickToScroll>
       </section>
     );
+  const controls = <>{controls0}{ctaSection}</>;
 
   return (
     <CarouselComposer
@@ -236,14 +252,14 @@ export function PostBuilder({ approved, initialSingleId, onChanged }: { approved
       controls={controls}
       cover={mode === 'weekly'
         ? { kicker: 'This week on OTT', heading: 'OTT Releases', subheading: fmtRange(from, to) }
-        : { kicker: coverKicker, heading, subheading: coverSub ?? `${items.length} titles worth your time` }}
-      outroLine={mode === 'weekly' ? 'Which one are you watching first?' : 'Which one is your pick?'}
+        : { kicker: coverKicker, heading, subheading: coverSub ?? `${items.length} title${items.length === 1 ? '' : 's'} worth your time` }}
+      outroLine={cta !== 'auto' ? ottCtaOf(cta).outro : mode === 'weekly' ? 'Which one are you watching first?' : 'Which one is your pick?'}
       titleExtras={(r, rank) => (mode === 'picks' ? { rank, note: notes[r.id] } : {})}
       includeOutro={includeOutro} setIncludeOutro={setIncludeOutro}
       hideCover={hideCover} setHideCover={setHideCover}
       customSlides={customSlides} setCustomSlides={setCustomSlides}
       captionTemplate={(ordered, ai) =>
-        mode === 'weekly' ? weeklyCaption(ordered, from, to, brand.handle, extraTags, ai) : picksCaption(ordered, heading, notes, brand.handle, extraTags, ai)}
+        mode === 'weekly' ? weeklyCaption(ordered, from, to, brand.handle, extraTags, ai, cta) : picksCaption(ordered, heading, notes, brand.handle, extraTags, ai, cta)}
       aiRequest={(ordered, tone, language) => OTT_DOMAIN.aiCaption({ kind: mode === 'picks' ? 'picks' : 'weekly', releaseIds: ordered.map(r => r.id), tone, language, heading })}
       captionKey={mode}
       publishKind={mode === 'picks' ? 'picks' : 'weekly'}

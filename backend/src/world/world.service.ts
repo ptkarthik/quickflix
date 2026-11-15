@@ -52,6 +52,10 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 const num = (v: unknown) => (v === undefined || v === null || v === '' ? undefined : Number(v));
 const TMDB = 'https://api.themoviedb.org/3';
 
+const INDIAN_LANGS = ['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'mr', 'pa', 'gu', 'or', 'as', 'ur', 'bh', 'sa', 'ne', 'si'];
+const MAJOR_LANGS = ['en', 'ko', 'ja', 'zh', 'cn', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'tr', 'th', 'id', 'fa', 'ar', 'pl', 'sv', 'da', 'no', 'nl', 'tl', 'vi', 'he', 'ms', 'fi', 'el', 'hu', 'cs', 'ro', 'uk', 'is', 'et', 'ka', 'sr'];
+export interface CoverageRow { code: string; name: string; native: string | null; tmdb: number; ours: number; percent: number }
+
 @Injectable()
 export class WorldService implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger(WorldService.name);
@@ -543,10 +547,8 @@ export class WorldService implements OnApplicationBootstrap, OnModuleDestroy {
 
   /** How deep to go per language: Indian languages deepest, big world cinemas next, everything else the top titles. */
   private sweepDepth(code: string, perLanguage: number) {
-    const INDIAN = ['hi', 'ta', 'te', 'ml', 'kn', 'bn', 'mr', 'pa', 'gu', 'or', 'as', 'ur', 'bh', 'sa', 'ne', 'si'];
-    const MAJOR = ['en', 'ko', 'ja', 'zh', 'cn', 'es', 'fr', 'de', 'it', 'pt', 'ru', 'tr', 'th', 'id', 'fa', 'ar', 'pl', 'sv', 'da', 'no', 'nl', 'tl', 'vi', 'he', 'ms'];
-    if (INDIAN.includes(code)) return perLanguage * 4;
-    if (MAJOR.includes(code)) return perLanguage * 2;
+    if (INDIAN_LANGS.includes(code)) return perLanguage * 4;
+    if (MAJOR_LANGS.includes(code)) return perLanguage * 2;
     return perLanguage;
   }
 
@@ -581,6 +583,186 @@ export class WorldService implements OnApplicationBootstrap, OnModuleDestroy {
         this.enrichBatch().catch(() => null);
       });
     return { started: true, scan: this.scan };
+  }
+
+  // ───────────────────────── coverage: "is every well-known title here?" ─────────────────────────
+
+  private coverageCache = new Map<string, { at: number; rows: CoverageRow[] }>();
+
+  /**
+   * Per language: how many titles TMDB has with at least `minVotes` votes (a fair "well-known" bar) vs how many of those
+   * we hold. Cached for 6 hours.
+   */
+  async coverage(kindIn: string, minVotesIn?: number, fresh = false): Promise<CoverageRow[]> {
+    const kind: WorldKind = kindIn === 'tv' ? 'tv' : 'movie';
+    const minVotes = Math.max(10, Math.min(Number(minVotesIn) || 50, 1000));
+    const ck = `${kind}:${minVotes}`;
+    const hit = this.coverageCache.get(ck);
+    if (hit && !fresh && Date.now() - hit.at < 6 * 3600000) return hit.rows;
+    const [names, held] = await Promise.all([
+      this.tmdbLanguages().catch(() => [] as Array<{ code: string; name: string; native: string | null }>),
+      this.prisma.worldTitle.groupBy({ by: ['language'], where: { kind, tmdbVotes: { gte: minVotes } }, _count: { _all: true } }),
+    ]);
+    const heldBy = new Map(held.map(h => [h.language || '', h._count._all]));
+    const all = await this.prisma.worldTitle.groupBy({ by: ['language'], where: { kind }, _count: { _all: true } });
+    // 'xx' = TMDB's "no language" (silent films etc.) — not a language to cover
+    const codes = [...new Set([...all.map(a => a.language).filter((c): c is string => !!c && c !== 'xx'), ...MAJOR_LANGS, ...INDIAN_LANGS])];
+    const rows: CoverageRow[] = [];
+    for (const code of codes) {
+      const d = await this.tmdb(`/discover/${kind}`, { 'vote_count.gte': minVotes, with_original_language: code, include_adult: 'false', page: 1 });
+      const tmdb = Number(d?.total_results) || 0;
+      if (!tmdb) continue;
+      const ours = Math.min(heldBy.get(code) || 0, tmdb);
+      const n = names.find(x => x.code === code);
+      rows.push({ code, name: n?.name || code, native: n?.native || null, tmdb, ours, percent: Math.round((ours / tmdb) * 100) });
+      await sleep(60);
+    }
+    rows.sort((a, b) => a.percent - b.percent || b.tmdb - a.tmdb);
+    this.coverageCache.set(ck, { at: Date.now(), rows });
+    return rows;
+  }
+
+  /** Scan every language below `target` coverage until all its well-known titles are in (as PENDING — still need your approval). */
+  startCoverageFill(input: { kinds?: WorldKind[]; minVotes?: number; target?: number } = {}) {
+    if (this.scan.active) return { started: false, scan: this.scan };
+    const kinds: WorldKind[] = input.kinds?.length ? input.kinds.filter(k => k === 'movie' || k === 'tv') : ['movie', 'tv'];
+    const minVotes = Math.max(10, Math.min(Number(input.minVotes) || 50, 1000));
+    const target = Math.max(0.5, Math.min(Number(input.target) || 0.98, 1));
+    this.scan = { active: true, kind: kinds.join('+'), page: 0, pages: 0, seen: 0, added: 0, startedAt: new Date().toISOString(), mode: 'languages', lang: 'checking coverage…', langDone: 0, langTotal: 0 };
+    (async () => {
+      const jobs: Array<{ kind: WorldKind; row: CoverageRow }> = [];
+      for (const kind of kinds) for (const row of await this.coverage(kind, minVotes, true)) if (row.ours < row.tmdb * target) jobs.push({ kind, row });
+      this.scan.langTotal = jobs.length;
+      for (const { kind, row } of jobs) {
+        this.scan.lang = `${row.name} ${kind === 'tv' ? 'series' : 'movies'} (${row.percent}%)`;
+        // TMDB serves at most 500 pages (10,000 titles) per query
+        await this.runScanPages({ kind, language: row.code, minVotes, sort: 'vote_count.desc', pages: Math.min(500, Math.ceil(row.tmdb / 20)) });
+        this.scan.langDone = (this.scan.langDone || 0) + 1;
+      }
+    })()
+      .catch(e => (this.scan.error = e.message))
+      .finally(() => {
+        this.scan.active = false;
+        this.scan.finishedAt = new Date().toISOString();
+        this.facetCache.clear();
+        this.coverageCache.clear();
+        this.logger.log(`[World] coverage fill: ${this.scan.seen} seen, ${this.scan.added} new`);
+        this.enrichBatch().catch(() => null);
+      });
+    return { started: true, scan: this.scan };
+  }
+
+  // ───────────────────────── second source: IMDb's full title list ─────────────────────────
+
+  /**
+   * Cross-check with IMDb's own full list: every movie / series with `minVotes`+ IMDb votes that we don't hold yet is
+   * matched to TMDB (by its IMDb id) and added as PENDING. Never duplicates: skipped if the IMDb id or the TMDB id is
+   * already here; then duplicates are cleaned up.
+   */
+  startImdbCrossCheck(input: { minVotes?: number } = {}) {
+    if (this.scan.active) return { started: false, scan: this.scan };
+    const minVotes = Math.max(200, Math.min(Number(input.minVotes) || 1000, 100000));
+    this.scan = { active: true, kind: 'movie+tv', page: 0, pages: 0, seen: 0, added: 0, startedAt: new Date().toISOString(), mode: 'languages', lang: 'reading IMDb’s full list…', langDone: 0, langTotal: 0 };
+    (async () => {
+      const known = await this.imdb.knownTitles(minVotes);
+      const have = new Set((await this.prisma.worldTitle.findMany({ where: { imdbId: { not: null } }, select: { imdbId: true } })).map(r => r.imdbId!));
+      const todo = known.filter(k => !have.has(k.tconst));
+      this.scan.langTotal = todo.length;
+      const genres = { movie: await this.genres('movie'), tv: await this.genres('tv') };
+      let notOnTmdb = 0;
+      const one = async (t: (typeof todo)[number]) => {
+        const kind: WorldKind = t.type === 'movie' ? 'movie' : 'tv';
+        const d = await this.tmdb(`/find/${t.tconst}`, { external_source: 'imdb_id' });
+        const r = (kind === 'movie' ? d?.movie_results : d?.tv_results)?.[0];
+        if (!r?.id) { notOnTmdb++; return; }
+        const existing = await this.prisma.worldTitle.findUnique({ where: { kind_tmdbId: { kind, tmdbId: r.id } } });
+        if (existing) {
+          if (!existing.imdbId) await this.prisma.worldTitle.update({ where: { id: existing.id }, data: { imdbId: t.tconst, imdbType: t.type } });
+          return;
+        }
+        const facts = mapTmdbListItem(kind, r, genres[kind]);
+        await this.prisma.worldTitle.create({ data: { kind, tmdbId: r.id, imdbId: t.tconst, imdbType: t.type, ...facts, ...scoreFields(facts), status: 'PENDING', origin: 'IMDB' } });
+        this.scan.added++;
+      };
+      let failed = 0;
+      let failStreak = 0;
+      let outages = 0;
+      for (let i = 0; i < todo.length; i += 4) {
+        // one bad lookup (network blip, TMDB hiccup) must not end the whole run: retry once, then skip that title
+        await Promise.all(todo.slice(i, i + 4).map(async t => {
+          this.scan.seen++;
+          for (let attempt = 0; attempt < 2; attempt++) {
+            try {
+              await one(t);
+              failStreak = 0;
+              return;
+            } catch {
+              await sleep(1500);
+            }
+          }
+          failed++;
+          failStreak++;
+        }));
+        if (failStreak >= 20) {
+          // the internet / TMDB dropped out: wait and carry on (up to ~30 min of outages), retrying the titles that failed
+          if (++outages > 30) throw new Error('internet kept dropping — run it again later (titles already added are kept)');
+          this.scan.lang = `waiting for the internet… (${outages})`;
+          await sleep(60000);
+          failed -= failStreak;
+          failStreak = 0;
+          i = Math.max(-4, i - 20);
+          continue;
+        }
+        this.scan.langDone = Math.min(todo.length, i + 4);
+        this.scan.lang = `IMDb list: ${todo[Math.min(todo.length - 1, i + 3)]?.title || ''}`;
+        await sleep(120);
+      }
+      this.logger.log(`[World] IMDb cross-check (${minVotes}+ votes): ${known.length} known, ${todo.length} not held, ${this.scan.added} added, ${notOnTmdb} not on TMDB, ${failed} failed`);
+    })()
+      .catch(e => (this.scan.error = e.message))
+      .finally(async () => {
+        await this.dedupe().catch(() => 0);
+        this.scan.active = false;
+        this.scan.finishedAt = new Date().toISOString();
+        this.facetCache.clear();
+        this.coverageCache.clear();
+        this.enrichBatch().catch(() => null);
+      });
+    return { started: true, scan: this.scan };
+  }
+
+  /** Titles stored twice (same IMDb id under two TMDB entries): keep one (approved first, else most votes), hide the rest. */
+  async dedupe(): Promise<number> {
+    const groups = await this.prisma.$queryRawUnsafe<Array<{ imdbId: string }>>(
+      `SELECT imdbId FROM WorldTitle WHERE imdbId IS NOT NULL AND status != 'REJECTED' GROUP BY kind, imdbId HAVING COUNT(*) > 1`,
+    );
+    let hidden = 0;
+    for (const g of groups) {
+      const rows = await this.prisma.worldTitle.findMany({ where: { imdbId: g.imdbId, status: { not: 'REJECTED' } } });
+      const byKind = new Map<string, typeof rows>();
+      for (const r of rows) byKind.set(r.kind, [...(byKind.get(r.kind) || []), r]);
+      for (const list of byKind.values()) {
+        if (list.length < 2) continue;
+        const keep = [...list].sort((a, b) => Number(b.status === 'APPROVED') - Number(a.status === 'APPROVED') || (b.tmdbVotes || 0) - (a.tmdbVotes || 0))[0];
+        for (const r of list) {
+          if (r.id === keep.id || r.status === 'APPROVED') continue;
+          await this.prisma.worldTitle.update({ where: { id: r.id }, data: { status: 'REJECTED', notes: `Duplicate of “${keep.title}” (TMDB ${keep.tmdbId}) — same IMDb title ${g.imdbId}` } });
+          hidden++;
+        }
+      }
+    }
+    if (hidden) {
+      this.facetCache.clear();
+      this.logger.log(`[World] duplicates hidden: ${hidden}`);
+    }
+    return hidden;
+  }
+
+  async duplicateCount() {
+    const r = await this.prisma.$queryRawUnsafe<Array<{ n: number | bigint }>>(
+      `SELECT COUNT(*) AS n FROM (SELECT 1 FROM WorldTitle WHERE imdbId IS NOT NULL AND status != 'REJECTED' GROUP BY kind, imdbId HAVING COUNT(*) > 1)`,
+    );
+    return Number(r[0]?.n || 0);
   }
 
   // ───────────────────────── data check ─────────────────────────

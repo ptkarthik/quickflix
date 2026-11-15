@@ -296,7 +296,7 @@ export default function OttDeskPage() {
             {recent.map(r => <ReleaseCard key={r.id + r.updatedAt} release={r} onChanged={replace} onRemoved={removeRow} onMakePost={() => makePost(r.id)} />)}
           </div>
         ) : (
-          <PostBuilder key={postTarget || 'none'} approved={approved} initialSingleId={postTarget} onChanged={replace} />
+          <PostBuilder key={postTarget || 'none'} approved={approved} all={rows} initialSingleId={postTarget} onChanged={replace} />
         )}
       </div>
     </div>

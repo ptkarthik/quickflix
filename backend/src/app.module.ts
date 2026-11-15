@@ -1,3 +1,4 @@
+import { ReadyModule } from './ready/ready.module';
 import { Module } from '@nestjs/common';
 import { WorldModule } from './world/world.module';
 import { ExtrasModule } from './extras/extras.module';
@@ -50,6 +51,7 @@ import { MediaModule } from './media/media.module';
     OnThisDayModule,
     GrowthModule,
     TrendsModule,
+    ReadyModule,
     ServeStaticModule.forRoot({
       rootPath: join(process.cwd(), 'uploads'),
       serveRoot: '/uploads',

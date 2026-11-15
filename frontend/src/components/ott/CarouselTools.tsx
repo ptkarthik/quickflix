@@ -1,4 +1,5 @@
 'use client';
+import { Overlay } from './Overlay';
 import React, { useEffect, useRef, useState } from 'react';
 import { Bookmark, ChevronLeft, ChevronRight, GripVertical, Heart, ImagePlus, MessageCircle, MoreHorizontal, Plus, Send, X } from 'lucide-react';
 import { OttRelease, displayTitle } from '@/lib/ott';
@@ -117,7 +118,8 @@ export function PicturePicker({
   const [rid, setRid] = useState<string | null>(initialReleaseId || releases[0]?.id || null);
   const release = releases.find(r => r.id === rid) || null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <Overlay onEscape={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div className="w-full max-w-xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-5 space-y-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold flex items-center gap-2"><ImagePlus className="w-5 h-5 text-indigo-400" /> {title}</h3>
@@ -138,6 +140,7 @@ export function PicturePicker({
         {onReset && <button onClick={() => { onReset(); onClose(); }} className="text-xs text-slate-400 hover:text-white">Reset to the original poster</button>}
       </div>
     </div>
+    </Overlay>
   );
 }
 
@@ -167,18 +170,18 @@ export function InstagramPreview({
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'ArrowRight') setIdx(i => Math.min(n - 1, i + 1));
       if (e.key === 'ArrowLeft') setIdx(i => Math.max(0, i - 1));
-      if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [n, onClose]);
+  }, [n]);
 
   const name = handle.replace(/^@/, '') || 'yourhandle';
   const [firstLine, ...rest] = caption.split('\n');
   const scale = PHONE_W / SLIDE_W;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 overflow-y-auto" onClick={onClose}>
+    <Overlay onEscape={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/80 p-4 overflow-y-auto overscroll-contain" onClick={onClose}>
       <div className="flex flex-col xl:flex-row items-center xl:items-start gap-6 max-h-full" onClick={e => e.stopPropagation()}>
         {/* phone */}
         <div className="shrink-0 box-content rounded-[2.5rem] border-[10px] border-neutral-800 bg-black shadow-2xl overflow-hidden" style={{ width: PHONE_W }}>
@@ -247,6 +250,7 @@ export function InstagramPreview({
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }
 

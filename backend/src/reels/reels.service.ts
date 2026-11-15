@@ -3,10 +3,10 @@ import { spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { MUSIC_LIBRARY, ReelOptions, TRANSITIONS, Transition, clamp, ffmpegArgs, totalSeconds } from './reels.util';
+import { EFFECTS, Effect, MOTION_STYLES, MUSIC_LIBRARY, MotionStyle, ReelOptions, TRANSITIONS, Transition, clamp, ffmpegArgs, totalSeconds } from './reels.util';
 import * as dns from 'node:dns';
 import { checkVideoLink, fileNameFrom, isPrivateHost, looksLikeVideo } from './video-link.util';
-import { CamPos, CamShape, voiceoverArgs } from './voiceover.util';
+import { cleanHolds, holdSeconds, CamPos, CamShape, voiceoverArgs } from './voiceover.util';
 import { AutoStyle, analysisArgs, parseAnalysis, pickClips } from './auto-cut.util';
 import { TrailerAudio, TrailerClip, probeFromStderr, trailerReelArgs, trailerReelSeconds } from './trailer-reel.util';
 
@@ -17,11 +17,14 @@ const MAX_SECONDS = 90; // Instagram Reels via the API: up to 90 s
 
 export interface RenderInput {
   slides: Buffer[];
-  options: { durations?: unknown; seconds?: unknown; transition?: unknown; motion?: unknown; trackId?: unknown; audioStart?: unknown; volume?: unknown; fadeOut?: unknown };
+  options: { durations?: unknown; seconds?: unknown; transition?: unknown; motion?: unknown; motionStyle?: unknown; effect?: unknown; trackId?: unknown; audioStart?: unknown; volume?: unknown; fadeOut?: unknown };
   audio?: { buffer: Buffer; originalname?: string } | null;
 }
 
 /** Makes Instagram Reels (MP4, 1080×1920, H.264 + AAC) from post slides, with optional music. Runs ffmpeg locally — free. */
+const pickEffect = (e: unknown): Effect => (EFFECTS.includes(e as Effect) ? (e as Effect) : 'none');
+const pickStyle = (m: unknown): MotionStyle => (MOTION_STYLES.includes(m as MotionStyle) ? (m as MotionStyle) : 'in');
+
 @Injectable()
 export class ReelsService {
   private readonly logger = new Logger(ReelsService.name);
@@ -83,7 +86,7 @@ export class ReelsService {
         credit = MUSIC_LIBRARY.find(t => t.id === o.trackId)?.credit || null;
       }
       const out = path.join(dir, 'reel.mp4');
-      await this.run(ffmpegArgs(slidePaths, { durations, transition, motion: o.motion !== false && o.motion !== 'false', audio }, out), Math.max(120000, seconds * 8000));
+      await this.run(ffmpegArgs(slidePaths, { durations, transition, motion: o.motion !== false && o.motion !== 'false', motionStyle: pickStyle(o.motionStyle), effect: pickEffect(o.effect), audio }, out), Math.max(120000, seconds * 8000));
       const mp4 = fs.readFileSync(out);
       this.logger.log(`[Reels] ${n} slide(s), ${seconds.toFixed(1)} s, ${(mp4.length / 1e6).toFixed(1)} MB${audio ? ' with music' : ''}`);
       return { mp4, seconds, credit };
@@ -229,7 +232,7 @@ export class ReelsService {
   async renderVoiceover(input: {
     reel: { buffer: Buffer };
     rec: { buffer: Buffer; originalname?: string };
-    options: { split?: unknown; intro?: unknown; pip?: unknown; shape?: unknown; pos?: unknown; size?: unknown; mirror?: unknown; voiceVolume?: unknown; bgVolume?: unknown };
+    options: { split?: unknown; intro?: unknown; pip?: unknown; shape?: unknown; pos?: unknown; size?: unknown; mirror?: unknown; voiceVolume?: unknown; bgVolume?: unknown; holds?: unknown };
   }): Promise<{ mp4: Buffer; seconds: number }> {
     if (!FFMPEG) throw new ServiceUnavailableException('ffmpeg is not installed (npm i ffmpeg-static in backend).');
     if (this.busy >= 2) throw new ServiceUnavailableException('Two Reels are already being made — try again in a moment.');
@@ -248,7 +251,8 @@ export class ReelsService {
       if (!ci.hasAudio) throw new BadRequestException('No sound in the recording — check the microphone and try again.');
       const split = clamp(o.split, 0, 15, 0);
       const intro = o.intro === true || o.intro === 'true';
-      const seconds = (intro ? split : 0) + ri.duration;
+      const holds = cleanHolds(o.holds, ri.duration);
+      const seconds = (intro ? split : 0) + ri.duration + holdSeconds(holds);
       if (seconds > MAX_SECONDS + 15) throw new BadRequestException(`That would be ${Math.round(seconds)} s — keep the intro short.`);
       const shape: CamShape = o.shape === 'box' ? 'box' : 'circle';
       const pos: CamPos = (['br', 'bl', 'tr', 'tl', 'bc'] as const).includes(o.pos as CamPos) ? (o.pos as CamPos) : 'br';
@@ -258,7 +262,7 @@ export class ReelsService {
         voiceoverArgs(reel, rec, {
           split, intro, hasCam: ci.hasVideo, pip: wantPip && ci.hasVideo ? { shape, pos, size: clamp(o.size, 200, 560, 380) } : null,
           mirror: o.mirror !== false && o.mirror !== 'false', voiceVolume: clamp(o.voiceVolume, 0.2, 3, 1), bgVolume: clamp(o.bgVolume, 0, 1.5, 0.5),
-          reelSeconds: ri.duration, reelHasAudio: ri.hasAudio,
+          reelSeconds: ri.duration, reelHasAudio: ri.hasAudio, holds,
         }, out),
         Math.max(240000, seconds * 12000),
       );
@@ -323,7 +327,8 @@ export class ReelsService {
     intro?: Buffer | null;
     outro?: Buffer | null;
     audio?: { buffer: Buffer; originalname?: string } | null;
-    options: { clips?: unknown; framing?: unknown; audio?: unknown; trackId?: unknown; audioStart?: unknown; volume?: unknown; trailerVolume?: unknown; fadeOut?: unknown; introSeconds?: unknown; outroSeconds?: unknown };
+    signature?: Buffer | null;
+    options: { clips?: unknown; framing?: unknown; audio?: unknown; trackId?: unknown; audioStart?: unknown; volume?: unknown; trailerVolume?: unknown; fadeOut?: unknown; introSeconds?: unknown; outroSeconds?: unknown; signatureSeconds?: unknown; signatureAt?: unknown; effect?: unknown };
   }): Promise<{ mp4: Buffer; seconds: number; credit: string | null }> {
     if (!FFMPEG) throw new ServiceUnavailableException('ffmpeg is not installed (npm i ffmpeg-static in backend).');
     const o = input.options || {};
@@ -359,7 +364,9 @@ export class ReelsService {
       const outroPath = write('outro.jpg', input.outro);
       const intro = introPath ? { path: introPath, seconds: clamp(o.introSeconds, 1, 8, 2.5) } : null;
       const outro = outroPath ? { path: outroPath, seconds: clamp(o.outroSeconds, 1, 8, 3) } : null;
-      const seconds = trailerReelSeconds({ clips, intro, outro });
+      const sigPath = write('signature.jpg', input.signature);
+      const signature = sigPath ? { path: sigPath, seconds: clamp(o.signatureSeconds, 1, 6, 2.5), at: (o.signatureAt === 'start' ? 'start' : 'end') as 'start' | 'end' } : null;
+      const seconds = trailerReelSeconds({ clips, intro, outro, signature });
       if (seconds > MAX_SECONDS) throw new BadRequestException(`That Reel would be ${Math.round(seconds)} s — Instagram allows ${MAX_SECONDS} s.`);
       const audioMode: TrailerAudio = ['trailer', 'music', 'mix', 'none'].includes(o.audio as string) ? (o.audio as TrailerAudio) : 'trailer';
       let music: { path: string; start: number; volume: number } | null = null;
@@ -381,7 +388,7 @@ export class ReelsService {
       await this.run(
         trailerReelArgs(trailer, {
           clips, framing: o.framing === 'fill' ? 'fill' : 'fit', audio: audioMode, hasTrailerAudio: info.hasAudio,
-          trailerVolume: clamp(o.trailerVolume, 0, 2, 1), music, fadeOut: clamp(o.fadeOut, 0, 5, 1), overlay, intro, outro,
+          trailerVolume: clamp(o.trailerVolume, 0, 2, 1), music, fadeOut: clamp(o.fadeOut, 0, 5, 1), overlay, intro, outro, signature, effect: pickEffect(o.effect),
         }, out),
         Math.max(180000, seconds * 10000),
       );

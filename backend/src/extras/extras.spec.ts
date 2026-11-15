@@ -26,12 +26,12 @@ describe('extras util', () => {
 describe('ExtrasService.aiOneLiners', () => {
   it('refuses without a synopsis and drops lines with dates/platforms', async () => {
     const prisma: any = { cinemaRelease: { findUnique: async () => ({ title: 'X', tmdbId: 1, releaseDate: '2026-12-04', overview: null }) } };
-    const svc = new ExtrasService(prisma, {} as any, { get: async () => null } as any, {} as any);
+    const svc = new ExtrasService(prisma, {} as any, { get: async () => null } as any, {} as any, {} as any);
     await expect(svc.aiOneLiners('cinema', 'c1', {})).rejects.toThrow(/synopsis/);
 
     prisma.cinemaRelease.findUnique = async () => ({ title: 'X', tmdbId: 1, releaseDate: '2026-12-04', overview: 'A cop fights the system.', genres: 'Action', language: 'ta' });
     const ai: any = { generate: async () => ({ model: 'm', text: JSON.stringify({ options: ['One cop. One system. 🔥', 'Streaming on Netflix soon', 'In theatres this Friday', 'Watch it on the big screen'] }) }) };
-    const svc2 = new ExtrasService(prisma, ai, { get: async () => null } as any, {} as any);
+    const svc2 = new ExtrasService(prisma, ai, { get: async () => null } as any, {} as any, {} as any);
     const r = await svc2.aiOneLiners('cinema', 'c1', {});
     expect(r.options).toEqual(['One cop. One system. 🔥', 'Watch it on the big screen']);
   });

@@ -61,6 +61,7 @@ export function ThemePicker({
 }) {
   const [open, setOpen] = useState(false);
   const [group, setGroup] = useState<Group>('all');
+  const [scrollOn, setScrollOn] = useState(false);
   const [q, setQ] = useState('');
   // this browser's favourites / recently used / "fresh every post" (localStorage; empty during server render)
   const [favs, setFavs] = useState<string[]>(() => favouriteThemes());
@@ -131,12 +132,22 @@ export function ThemePicker({
         </div>
         <span className="text-[10px] text-slate-500 shrink-0">{list.length}</span>
       </div>
-      <div className="flex flex-wrap gap-1.5 max-h-[300px] overflow-y-auto pr-1">
+      {/* The page scrolls past this list; it only scrolls itself once you click into it (so it never traps the mouse wheel). */}
+      <div className="relative">
+      <div onClick={() => setScrollOn(true)} onMouseLeave={() => setScrollOn(false)}
+        className={`flex flex-wrap gap-1.5 max-h-[300px] pr-1 ${scrollOn ? 'overflow-y-auto overscroll-contain' : 'overflow-hidden'}`}>
         {list.map(t => (
           <Tile key={t.id} theme={t} active={value.base === t.id} label={t.name.split(' · ')[0]} sub={t.name.split(' · ')[1] || t.category}
             onClick={() => pick(t.id)} fav={favs.includes(t.id)} onFav={() => setFavs(toggleFavourite(t.id))} />
         ))}
         {!list.length && <p className="text-xs text-slate-500 py-2">{group === 'fav' ? 'Tap ☆ on any theme to keep it here.' : group === 'recent' ? 'Themes you use show up here.' : 'No theme matches.'}</p>}
+      </div>
+      {!scrollOn && list.length > 9 && (
+        <button onClick={() => setScrollOn(true)}
+          className="absolute inset-x-0 bottom-0 flex h-10 items-end justify-center bg-gradient-to-t from-slate-900 via-slate-900/80 to-transparent pb-1 text-[11px] font-medium text-indigo-300 hover:text-white">
+          Click to scroll all {list.length} themes ↓
+        </button>
+      )}
       </div>
       <p className="text-[11px] text-slate-500">Now: <b className="text-slate-300">{resolved.emoji} {value.base === 'auto' ? `Auto → ${resolved.name}` : resolved.name}</b></p>
       <button onClick={() => setOpen(!open)} className="flex items-center gap-1 text-[11px] text-indigo-300 hover:text-indigo-200">

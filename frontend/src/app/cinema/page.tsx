@@ -272,7 +272,7 @@ export default function CinemaDeskPage() {
                   <p className="text-sm text-slate-500">Posts only ever use films you approved. Approve the films you trust in the Review Queue (try “Approve all ✅ Confirmed”), then come back.</p>
                 </div>
               ) : (
-                <CinemaPostBuilder key={postTarget || 'none'} approved={approved} initialSingleId={postTarget} onChanged={replace} />
+                <CinemaPostBuilder key={postTarget || 'none'} approved={approved} all={rows} initialSingleId={postTarget} onChanged={replace} />
               )
             )}
           </div>

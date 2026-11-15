@@ -452,3 +452,37 @@ model WatchChannel {
   lastScanNote String?
   createdAt    DateTime  @default(now())
 }
+
+/// Ready-made posts: carousels the app builds every day from each desk's titles (OTT week, cinemas, World lists).
+/// You open, edit, accept, delete or post them. Nothing is posted or approved without your click.
+model ReadyPost {
+  id          String    @id @default(uuid())
+  desk        String    // ott | cinema | world
+  templateId  String    // e.g. "ott:week-ta", "world:crime"
+  periodKey   String    // the week (Monday) or day the post is for
+  group       String    // shelf it shows on, e.g. "This week", "Languages", "Movie genres"
+  emoji       String?
+  kicker      String
+  heading     String
+  subheading  String
+  style       String    // caption / slide style: weekly | picks | cinema-weekly … | world
+  itemIds     String    // JSON: title ids in order
+  preview     String?   // JSON: [{id, title, poster}] for the gallery card
+  notes       String?   // JSON: {id: your one-line reason}
+  themeBase   String?   // look (theme id) — rotated so posts don't all look alike
+  cta         String?
+  numbered    Boolean   @default(true)
+  windowFrom  String?   // titles must be dated inside this window (otherwise dropped)
+  windowTo    String?
+  status      String    @default("READY") // READY | NEEDS_OK | POSTED | DISMISSED
+  edited      Boolean   @default(false)   // you changed it → the daily refresh never rewrites it
+  dropped     String?   // JSON: [{id, title, why, at}] titles removed automatically
+  generatedOn String    // IST date of the last refresh that touched it
+  postedAt    DateTime?
+  permalink   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@unique([desk, templateId, periodKey])
+  @@index([desk, status])
+}

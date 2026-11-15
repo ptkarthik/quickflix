@@ -62,8 +62,37 @@ export const MUSIC_LIBRARY: MusicTrack[] = [
   KM('Ancient Rite', 'World / folk'),
 ];
 
-export type Transition = 'fade' | 'slideleft' | 'smoothleft' | 'circleopen' | 'dissolve' | 'none';
-export const TRANSITIONS: Transition[] = ['fade', 'slideleft', 'smoothleft', 'circleopen', 'dissolve', 'none'];
+/** ffmpeg xfade transitions we offer, plus 'mixed' (a different one at every cut) and 'none' (straight cut). */
+export const XFADES = [
+  'fade', 'fadeblack', 'fadewhite', 'dissolve', 'slideleft', 'slideup', 'smoothleft', 'smoothup', 'wipeleft', 'wipeup',
+  'circleopen', 'circleclose', 'radial', 'pixelize', 'zoomin', 'hblur', 'squeezeh', 'diagtl', 'horzopen', 'vertopen',
+] as const;
+export type Transition = (typeof XFADES)[number] | 'mixed' | 'none';
+export const TRANSITIONS: Transition[] = [...XFADES, 'mixed', 'none'];
+/** 'mixed' cycles through these (all look good on posters) */
+const MIXED: Array<(typeof XFADES)[number]> = ['smoothleft', 'circleopen', 'zoomin', 'slideup', 'fadewhite', 'radial', 'wipeleft', 'dissolve'];
+export const transitionAt = (t: Transition, cut: number) => (t === 'mixed' ? MIXED[cut % MIXED.length] : t);
+
+/** Colour / film looks for the whole video. */
+export const EFFECTS = ['none', 'cinematic', 'warm', 'cool', 'punchy', 'bw', 'vintage', 'grain', 'vignette'] as const;
+export type Effect = (typeof EFFECTS)[number];
+export function effectFilter(e: Effect | undefined | null): string | null {
+  switch (e) {
+    case 'cinematic': return 'eq=contrast=1.08:saturation=1.08:gamma=0.97,vignette=PI/5';
+    case 'warm': return 'colorbalance=rs=0.07:gs=0.02:bs=-0.07:rm=0.04:bm=-0.04,eq=saturation=1.1';
+    case 'cool': return 'colorbalance=rs=-0.05:bs=0.08:bm=0.04,eq=saturation=1.05';
+    case 'punchy': return 'eq=contrast=1.15:saturation=1.3:brightness=0.02';
+    case 'bw': return 'hue=s=0,eq=contrast=1.12';
+    case 'vintage': return 'curves=preset=vintage,noise=alls=8:allf=t,vignette=PI/4';
+    case 'grain': return 'noise=alls=12:allf=t+u';
+    case 'vignette': return 'vignette=PI/4';
+    default: return null;
+  }
+}
+
+/** How each picture moves: zoom in, zoom out, alternate, or a slow pan. */
+export type MotionStyle = 'in' | 'out' | 'alt' | 'pan';
+export const MOTION_STYLES: MotionStyle[] = ['in', 'out', 'alt', 'pan'];
 
 export interface ReelOptions {
   /** seconds each slide is on screen */
@@ -71,6 +100,8 @@ export interface ReelOptions {
   transition: Transition;
   /** slow zoom on each picture */
   motion: boolean;
+  motionStyle?: MotionStyle;
+  effect?: Effect;
   /** music: none, or a file given as an ffmpeg input */
   audio?: { path: string; start: number; volume: number; fadeOut: number } | null;
 }
@@ -111,24 +142,32 @@ export function ffmpegArgs(slidePaths: string[], o: ReelOptions, outPath: string
     const frames = Math.round(o.durations[i] * FPS);
     f.push(`[${i}:v]split=2[bg${i}][fg${i}]`);
     f.push(`[bg${i}]scale=${W}:${H}:force_original_aspect_ratio=increase,crop=${W}:${H},gblur=sigma=40,eq=brightness=-0.18:saturation=1.1[bgb${i}]`);
+    const style = o.motionStyle === 'alt' ? (i % 2 ? 'out' : 'in') : o.motionStyle || 'in';
+    const zoom =
+      style === 'out' ? `z='1.08-0.08*on/${frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'`
+        : style === 'pan' ? `z='1.1':x='(iw-iw/zoom)*(${i % 2 ? '1-' : ''}on/${frames})':y='ih/2-(ih/zoom/2)'`
+          : `z='1+0.07*on/${frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)'`;
     const fg = o.motion
-      ? `[fg${i}]scale=2160:2700,zoompan=z='1+0.07*on/${frames}':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=1:s=1080x1350:fps=${FPS}[fgz${i}]`
+      ? `[fg${i}]scale=2160:2700,zoompan=${zoom}:d=1:s=1080x1350:fps=${FPS}[fgz${i}]`
       : `[fg${i}]scale=1080:1350[fgz${i}]`;
     f.push(fg);
     f.push(`[bgb${i}][fgz${i}]overlay=(W-w)/2:(H-h)/2:shortest=1,fps=${FPS},format=yuv420p,setsar=1,settb=1/${FPS}[v${i}]`);
   }
-  if (n === 1) f.push(`[v0]null[vout]`);
-  else if (o.transition === 'none') f.push(`${Array.from({ length: n }, (_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0[vout]`);
+  const fx = effectFilter(o.effect);
+  const VOUT = fx ? 'vraw' : 'vout';
+  if (n === 1) f.push(`[v0]null[${VOUT}]`);
+  else if (o.transition === 'none') f.push(`${Array.from({ length: n }, (_, i) => `[v${i}]`).join('')}concat=n=${n}:v=1:a=0[${VOUT}]`);
   else {
     let prev = 'v0';
     let offset = 0;
     for (let i = 1; i < n; i++) {
       offset += o.durations[i - 1] - T;
-      const out = i === n - 1 ? 'vout' : `x${i}`;
-      f.push(`[${prev}][v${i}]xfade=transition=${o.transition}:duration=${T}:offset=${offset.toFixed(3)}[${out}]`);
+      const out = i === n - 1 ? VOUT : `x${i}`;
+      f.push(`[${prev}][v${i}]xfade=transition=${transitionAt(o.transition, i - 1)}:duration=${T}:offset=${offset.toFixed(3)}[${out}]`);
       prev = out;
     }
   }
+  if (fx) f.push(`[vraw]${fx},format=yuv420p[vout]`);
   if (o.audio) {
     const fade = Math.min(o.audio.fadeOut, total / 2);
     f.push(`[${audioIndex}:a]atrim=0:${total.toFixed(3)},asetpts=PTS-STARTPTS,volume=${o.audio.volume.toFixed(2)},afade=t=in:st=0:d=0.4${fade > 0 ? `,afade=t=out:st=${(total - fade).toFixed(3)}:d=${fade.toFixed(2)}` : ''}[aout]`);

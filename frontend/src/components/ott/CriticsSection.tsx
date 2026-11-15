@@ -1,4 +1,5 @@
 'use client';
+import { ClickToScroll } from './ClickToScroll';
 import React, { useState } from 'react';
 import { ExternalLink, Loader2, Megaphone, Newspaper, Quote, RefreshCw, Search, Star } from 'lucide-react';
 import { CriticsResult, RatingKey, TitleExtra, extrasApi, shortOutlet } from '@/lib/extras';
@@ -60,7 +61,7 @@ export function CriticsSection({ domain, id, extra, onChange, onUseLine, shown }
               {data.phrases.map(p => <span key={p.text} className="rounded-full bg-slate-800 px-2 py-0.5 text-slate-200">{p.text} <span className="text-slate-500">×{p.count}</span></span>)}
             </div>
           )}
-          <ul className="space-y-1 max-h-72 overflow-y-auto pr-1">
+          <ClickToScroll maxH="max-h-72" count={data.reviews.length} noun="reviews"><ul className="space-y-1">
             {data.reviews.map(r => (
               <li key={r.id} className="rounded-md border border-slate-800 bg-slate-950/70 px-2 py-1.5 text-xs">
                 <div className="flex items-center gap-2">
@@ -78,7 +79,7 @@ export function CriticsSection({ domain, id, extra, onChange, onUseLine, shown }
                 )}
               </li>
             ))}
-          </ul>
+          </ul></ClickToScroll>
           {data.buzz.length > 0 && (
             <div className="text-[11px]">
               <button onClick={() => setBuzzOpen(o => !o)} className="flex items-center gap-1 text-slate-400 hover:text-white"><Megaphone className="w-3 h-3" /> Audience buzz — not critics ({data.buzz.length})</button>

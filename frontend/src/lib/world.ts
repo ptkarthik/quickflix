@@ -127,8 +127,13 @@ const tmdbLangNames: Record<string, string> = { cn: 'Cantonese', xx: 'No languag
 export const registerLanguageNames = (list: Array<{ code: string; name: string }>) => {
   for (const l of list) if (l.name && l.name !== l.code) tmdbLangNames[l.code] = l.name;
 };
+/** Clearer names where TMDB's hide the country people look for (Chinese, Iranian …). */
+const FRIENDLY: Record<string, string> = { zh: 'Chinese — Mandarin', cn: 'Chinese — Cantonese', fa: 'Persian (Iran)', he: 'Hebrew (Israel)', tl: 'Tagalog (Filipino)', nb: 'Norwegian', no: 'Norwegian' };
+export interface CoverageRow { code: string; name: string; native: string | null; tmdb: number; ours: number; percent: number }
+
 export const langName = (code?: string | null) => {
   if (!code) return '';
+  if (FRIENDLY[code]) return FRIENDLY[code];
   const own = LANGUAGES.find(l => l.code === code)?.label || tmdbLangNames[code];
   if (own) return own;
   try {
@@ -282,5 +287,11 @@ export const worldApi = {
     apiFetch('/world/scan/languages', post(body), 0).then(r => json<{ started: boolean; scan: ScanStatus }>(r)),
   languages: () => apiFetch('/world/languages').then(r => json<WorldLanguage[]>(r)),
   health: () => apiFetch('/world/health', undefined, 0).then(r => json<WorldHealth>(r)),
+  /** Per language: well-known on TMDB (minVotes+) vs held here. */
+  coverage: (kind: 'movie' | 'tv', minVotes = 50, fresh = false) => apiFetch(`/world/coverage?kind=${kind}&minVotes=${minVotes}${fresh ? '&fresh=true' : ''}`, undefined, 0).then(r => json<CoverageRow[]>(r)),
+  /** Second source: IMDb's full list — adds well-known titles TMDB discover missed (never duplicates). */
+  imdbCrossCheck: (minVotes = 1000) => apiFetch('/world/imdb-crosscheck', post({ minVotes }), 0).then(r => json<{ started: boolean; scan: ScanStatus }>(r)),
+  dedupe: () => apiFetch('/world/dedupe', post({}), 0).then(r => json<{ hidden: number }>(r)),
+  fillCoverage: (body: { kinds?: WorldKind[]; minVotes?: number } = {}) => apiFetch('/world/coverage/fill', post(body), 0).then(r => json<{ started: boolean; scan: ScanStatus }>(r)),
   imdbSync: () => apiFetch('/world/imdb-sync', { method: 'POST' }, 0).then(r => json<{ started: boolean }>(r)),
 };

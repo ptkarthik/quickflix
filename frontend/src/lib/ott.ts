@@ -192,7 +192,25 @@ function baseTags(items: OttRelease[], extra: string[]) {
   return Array.from(tags).slice(0, 25).join(' ');
 }
 
-export function weeklyCaption(items: OttRelease[], from: string, to: string, handle: string, extraTags: string, ai?: AiCaptionCopy | null) {
+/** How an OTT post ends (caption closing line + the end slide). 'auto' = the wording that fits the post type. */
+export const OTT_CTAS = [
+  { id: 'auto', label: '✨ Auto (fits the post)', single: '', list: '', outro: '' },
+  { id: 'first', label: '🍿 Which one first?', single: 'Are you watching this one? Tell me below 👇', list: 'Which one are you watching first? Tell us in the comments 👇', outro: 'Which one are you watching first?' },
+  { id: 'review', label: '⭐ Watched it? Review', single: 'Watched it? Drop your rating below 👇', list: 'Watched any of these? Drop your rating below 👇', outro: 'Watched it? Drop your review!' },
+  { id: 'save', label: '📌 Save for the weekend', single: 'Save this for your weekend watchlist 📌', list: 'Save this post for your weekend watchlist 📌', outro: 'Save it for the weekend!' },
+  { id: 'tag', label: '🏷 Tag a friend', single: 'Tag the friend you’re watching this with 🏷', list: 'Tag your binge buddy 🏷', outro: 'Tag your binge buddy!' },
+  { id: 'add', label: '➕ What would you add?', single: 'Seen something like it? Recommend below 👇', list: 'What would you add to this list? 👇', outro: 'What would you add?' },
+  { id: 'none', label: 'No call to action', single: '', list: '', outro: 'Thanks for watching!' },
+] as const;
+export const ottCtaOf = (id?: string) => OTT_CTAS.find(c => c.id === id) || OTT_CTAS[0];
+/** closing lines for a list caption: your ending, or the post type's default pair */
+const listEnding = (cta: string | undefined, ai: AiCaptionCopy | null | undefined, dflt: [string, string]) => {
+  if (ai?.closing) return [ai.closing, cta && cta !== 'auto' ? '' : dflt[1]];
+  if (!cta || cta === 'auto') return dflt;
+  return [ottCtaOf(cta).list, ''];
+};
+
+export function weeklyCaption(items: OttRelease[], from: string, to: string, handle: string, extraTags: string, ai?: AiCaptionCopy | null, cta?: string) {
   const lines = items.map(r => {
     const bits = [r.platform || 'Platform TBA', fmtDate(r.releaseDate, { day: 'numeric', month: 'short' })];
     const lang = languageLabel(r.language);
@@ -205,15 +223,14 @@ export function weeklyCaption(items: OttRelease[], from: string, to: string, han
     '',
     ...lines,
     '',
-    ai?.closing || 'Which one are you watching first? Tell us in the comments 👇',
-    'Save this post for your weekend watchlist 📌',
+    ...listEnding(cta, ai, ['Which one are you watching first? Tell us in the comments 👇', 'Save this post for your weekend watchlist 📌']),
     handle ? `\nFollow ${handle} for weekly OTT updates` : '',
     '',
     baseTags(items, ['#OTTReleases', '#OTTUpdates', '#ThisWeekOnOTT', '#NewOnOTT', '#WhatToWatch', ...splitTags(extraTags)]),
   ].filter((l, i, arr) => !(l === '' && arr[i - 1] === '')).join('\n');
 }
 
-export function picksCaption(items: OttRelease[], heading: string, notes: Record<string, string>, handle: string, extraTags: string, ai?: AiCaptionCopy | null) {
+export function picksCaption(items: OttRelease[], heading: string, notes: Record<string, string>, handle: string, extraTags: string, ai?: AiCaptionCopy | null, cta?: string) {
   const lines = items.map((r, i) => {
     // Your own note always wins over the AI teaser.
     const note = notes[r.id]?.trim() || ai?.teasers[r.id];
@@ -225,8 +242,7 @@ export function picksCaption(items: OttRelease[], heading: string, notes: Record
     '',
     ...lines,
     '',
-    ai?.closing || 'Have you watched any of these? Drop your pick below 👇',
-    'Save & share with your movie buddy 📌',
+    ...listEnding(cta, ai, ['Have you watched any of these? Drop your pick below 👇', 'Save & share with your movie buddy 📌']),
     handle ? `\nFollow ${handle} for more OTT suggestions` : '',
     '',
     baseTags(items, ['#OTTSuggestions', '#WhatToWatch', '#MustWatch', '#OTTPicks', ...splitTags(extraTags)]),
@@ -244,7 +260,7 @@ export function starString(rating: number) {
 }
 
 /** Caption for a single-title post. Your rating and review are used verbatim. */
-export function singleCaption(r: OttRelease, opts: { rating: number | null; review: string; handle: string; extraTags: string; today: string; ai?: AiCaptionCopy | null }) {
+export function singleCaption(r: OttRelease, opts: { rating: number | null; review: string; handle: string; extraTags: string; today: string; ai?: AiCaptionCopy | null; cta?: string }) {
   const ai = opts.ai;
   const upcoming = !!r.releaseDate && r.releaseDate > opts.today;
   const when = r.releaseDate ? fmtDate(r.releaseDate, { weekday: 'short', day: 'numeric', month: 'short' }) : '';
@@ -264,7 +280,7 @@ export function singleCaption(r: OttRelease, opts: { rating: number | null; revi
     ai?.blurb ? '' : null,
     ai?.blurb || null,
     '',
-    ai?.closing || (upcoming ? 'Are you watching this one? Tell me below 👇' : 'Watched it? Drop your rating below 👇'),
+    ai?.closing || (opts.cta && opts.cta !== 'auto' ? ottCtaOf(opts.cta).single : upcoming ? 'Are you watching this one? Tell me below 👇' : 'Watched it? Drop your rating below 👇'),
     opts.handle ? `Follow ${opts.handle} for more OTT updates & reviews` : null,
     '',
     baseTags([r], [opts.rating != null ? '#MovieReview' : '#OTTRelease', '#WhatToWatch', ...splitTags(opts.extraTags)]),

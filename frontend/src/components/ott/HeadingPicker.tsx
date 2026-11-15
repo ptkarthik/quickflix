@@ -1,4 +1,5 @@
 'use client';
+import { ClickToScroll } from './ClickToScroll';
 import React, { useMemo, useState } from 'react';
 import { BookOpen, Dices, RotateCcw, Save, Search, Trash2 } from 'lucide-react';
 import { CoverText, HEADING_CATS, HeadingCat, HeadingCtx, allHeadings, deleteMyHeading, fillHeading, randomHeading, rememberHeading, saveMyHeading } from '@/lib/headings';
@@ -62,7 +63,7 @@ export function HeadingPicker({ value, onChange, ctx, onReset, edited }: {
             </div>
             <span className="text-[10px] text-slate-500">{options.length}</span>
           </div>
-          <ul className="max-h-60 overflow-y-auto space-y-0.5 pr-1">
+          <ClickToScroll maxH="max-h-60" count={options.length} noun="headings"><ul className="space-y-0.5">
             {options.map(({ t, text }) => (
               <li key={t.id} className="group flex items-center gap-1">
                 <button onClick={() => { rememberHeading(t.id); onChange(text); }} className="flex-1 rounded px-2 py-1 text-left hover:bg-slate-800">
@@ -73,7 +74,7 @@ export function HeadingPicker({ value, onChange, ctx, onReset, edited }: {
               </li>
             ))}
             {!options.length && <li className="text-xs text-slate-500 px-2 py-1">{cat === 'Mine' ? 'Type your lines above and press “Save as mine”.' : cat === 'Language' ? 'Pick one language in the filters to see these.' : cat === 'Genre' ? 'Pick one genre in the filters to see these.' : 'Nothing matches.'}</li>}
-          </ul>
+          </ul></ClickToScroll>
         </div>
       )}
     </div>

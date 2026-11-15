@@ -185,6 +185,27 @@ export function commonPhrases(lines: string[], title: string, max = 8): Array<{ 
   return [...counts.entries()].filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1] || b[0].length - a[0].length).slice(0, max).map(([text, count]) => ({ text, count }));
 }
 
+// ───────────────────────── highlights (what reviewers commonly say — no names) ─────────────────────────
+
+const GOOD_ADJ = ['gripping', 'intense', 'emotional', 'engaging', 'engrossing', 'riveting', 'taut', 'tight', 'slick', 'stylish', 'powerful', 'brilliant', 'compelling', 'heartwarming', 'heart-warming', 'hilarious', 'funny', 'chilling', 'haunting', 'thrilling', 'edge-of-the-seat', 'whistle-worthy', 'mass', 'satisfying', 'fulfilling', 'fun', 'entertaining', 'stunning', 'visual', 'solid', 'stellar', 'terrific', 'superb', 'outstanding', 'fantastic', 'excellent', 'moving', 'poignant', 'touching', 'gritty', 'dark', 'relentless', 'pacy', 'fast-paced', 'clever', 'smart', 'twisty', 'atmospheric', 'beautiful', 'breathtaking', 'memorable', 'unforgettable', 'rousing', 'electrifying', 'explosive', 'feel-good', 'wholesome', 'charming', 'delightful', 'mind-bending', 'suspenseful', 'tense', 'nail-biting', 'layered', 'nuanced', 'bold', 'raw', 'rooted', 'authentic', 'classic', 'iconic', 'epic', 'grand', 'spectacular', 'ambitious', 'well-crafted', 'well-made', 'impressive', 'strong', 'top-notch', 'career-best', 'masterful', 'refreshing', 'quirky', 'witty'];
+const NOUN = ['drama', 'thriller', 'entertainer', 'ride', 'watch', 'story', 'tale', 'film', 'movie', 'performance', 'performances', 'climax', 'screenplay', 'narrative', 'music', 'score', 'bgm', 'visuals', 'action', 'comedy', 'romance', 'mystery', 'saga', 'actioner', 'interval', 'second half', 'first half', 'writing', 'direction', 'cinematography', 'twist', 'twists', 'experience', 'spectacle', 'moments', 'chemistry', 'humour', 'humor', 'emotions', 'storytelling', 'sequel', 'series', 'show'];
+const HL = new RegExp(`\\b((?:(?:${GOOD_ADJ.map(esc).join('|')})[\\s,]+(?:and\\s+)?){1,2})(${NOUN.map(esc).join('|')})\\b`, 'gi');
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/** "gripping thriller", "stellar performances", "emotional drama" … counted across reviews; positive descriptions only. */
+export function highlightPhrases(texts: string[], max = 10): Array<{ text: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const t of texts) {
+    const seen = new Set<string>();
+    for (const m of norm(t).matchAll(HL)) {
+      const p = `${m[1].replace(/[\s,]+/g, ' ').replace(/\band\s*$/, '').trim()} ${m[2]}`.replace(/\s+/g, ' ');
+      if (p.split(' ').length >= 2) seen.add(p);
+    }
+    for (const p of seen) counts.set(p, (counts.get(p) || 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].length - b[0].length).slice(0, max).map(([text, count]) => ({ text: cap(text), count }));
+}
+
 /** Short outlet name for a rating chip: "The Times of India" → "TOI". */
 export function shortOutlet(o: string) {
   const known: Record<string, string> = {

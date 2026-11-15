@@ -1,4 +1,6 @@
 'use client';
+import { ClickToScroll } from './ClickToScroll';
+import { useStored } from '@/lib/useStored';
 /* eslint-disable @next/next/no-img-element -- the post is rasterised by html-to-image; next/image would break export */
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { toJpeg } from 'html-to-image';
@@ -6,7 +8,7 @@ import {
   Check, Clapperboard, Copy, Download, ExternalLink, ImageIcon, Link2, Loader2, Plus, RotateCcw, Save, Search, Sparkles, Star, Upload, Wand2,
 } from 'lucide-react';
 import {
-  AiCaptionCopy, addDays, displayTitle, fmtDate, languageLabel, posterUrl, proxied, singleCaption, todayIst,
+  AiCaptionCopy, OTT_CTAS, addDays, displayTitle, fmtDate, languageLabel, posterUrl, proxied, singleCaption, todayIst,
 } from '@/lib/ott';
 import { ImageResults, OTT_DOMAIN, PostDomain, PostItem } from '@/lib/postDomain';
 import { CINEMA_CTAS, certRuntime, cinemaDateLine, cinemaSingleCaption, languagesLine, recentDateChange } from '@/lib/cinemaCaptions';
@@ -24,6 +26,10 @@ import { InstagramPublish } from './InstagramPublish';
 import { ReelMaker } from './ReelMaker';
 import { trailerTitleOf } from './YouTubeMarker';
 import { FacebookPhotoPublish } from './SocialPublish';
+import { MAIN, TitleSlideNode, TitleSlides, TitleSlidesApi, newInfoSlide, newPhotoSlide, useTitleSlides } from './TitleSlides';
+import { WhereToWatch } from './WhereToWatch';
+import { WhereOpts, WhereResult, captionWithWhere, whereApi, whereLines, whereSlideText } from '@/lib/where';
+import { InstagramPreview, SlideView } from './CarouselTools';
 import { AiCaptionBar } from './AiCaptionBar';
 
 const PREVIEW_SCALE = 0.42;
@@ -132,7 +138,7 @@ function AiPosterPanel({ release, kind, aiTheme, current, onPick }: { release: {
       )}
       {msg && <p className={`text-[11px] ${msg.err ? 'text-amber-400' : 'text-violet-300'}`}>{msg.text}</p>}
       {results.length > 0 && (
-        <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+        <ClickToScroll maxH="max-h-72" count={results.length} noun="AI posters"><div className="grid grid-cols-3 gap-2">
           {results.map(o => (
             <button key={o.url} onClick={() => onPick(o.url, `AI poster (${o.model})`)} title={o.model}
               className={`relative rounded-md overflow-hidden border-2 bg-slate-900 ${current === o.url ? 'border-indigo-500' : 'border-transparent hover:border-slate-500'}`} style={{ aspectRatio: '4/5' }}>
@@ -140,15 +146,18 @@ function AiPosterPanel({ release, kind, aiTheme, current, onPick }: { release: {
               <span className="absolute top-0.5 left-0.5 rounded bg-black/70 px-1 text-[9px] text-violet-200">AI</span>
             </button>
           ))}
-        </div>
+        </div></ClickToScroll>
       )}
     </div>
   );
 }
 
 export function ImageFinder({
-  release, current, onPick, aiTheme = 'brand', domain = OTT_DOMAIN,
+  release, current, onPick, aiTheme = 'brand', domain = OTT_DOMAIN, onAddSlide, slideUrls = [],
 }: {
+  /** single editor: "+ Slide" on each picture adds it as its own slide */
+  onAddSlide?: (url: string, label: string) => void;
+  slideUrls?: string[];
   release: PostItem;
   current: string | null;
   onPick: (url: string, label: string) => void;
@@ -225,16 +234,20 @@ export function ImageFinder({
       ) : list.length === 0 ? (
         <p className="text-xs text-slate-500 py-4 text-center">{tab === 'WEB' && data?.webError ? data.webError : 'No images here — try another tab.'}</p>
       ) : (
-        <div className="grid grid-cols-3 gap-2 max-h-72 overflow-y-auto pr-1">
+        <ClickToScroll className="grid grid-cols-3 gap-2" maxH="max-h-72" count={list.length} noun="pictures">
           {list.map(o => (
             <button key={o.url} onClick={() => onPick(o.url, o.label || o.source)} title={o.label}
               className={`relative rounded-md overflow-hidden border-2 bg-slate-900 ${current === o.url ? 'border-indigo-500' : 'border-transparent hover:border-slate-500'}`}
               style={{ aspectRatio: o.kind === 'poster' ? '2/3' : o.kind === 'web' ? '3/4' : '16/9' }}>
               <img src={proxied(o.thumb) || ''} alt="" loading="lazy" className="w-full h-full object-cover" />
               {o.width && o.height && <span className="absolute bottom-0.5 right-0.5 rounded bg-black/70 px-1 text-[9px] text-slate-300">{o.width}×{o.height}</span>}
+              {onAddSlide && (slideUrls.includes(o.url)
+                ? <span className="absolute top-0.5 left-0.5 rounded bg-emerald-700/90 px-1 text-[9px] text-white">✓ slide</span>
+                : <span role="button" title="Add this picture as its own slide (section 7)" onClick={e => { e.stopPropagation(); onAddSlide(o.url, o.label || o.source); }}
+                    className="absolute top-0.5 left-0.5 rounded bg-indigo-600/90 hover:bg-indigo-500 px-1 text-[9px] font-semibold text-white">+ Slide</span>)}
             </button>
           ))}
-        </div>
+        </ClickToScroll>
       )}
       <div className="flex gap-2">
         <input value={pasted} onChange={e => setPasted(e.target.value)} className="flex-1 rounded-md bg-slate-950 border border-slate-700 px-3 py-1.5 text-xs" placeholder="…or paste an image link (https://…)" />
@@ -278,18 +291,27 @@ function defaultCta(release: PostItem, today: string) {
   return release.releaseDate <= addDays(today, 7) ? 'book' : 'excited';
 }
 
+const SWIPE_LINE = '👉 Swipe for the story, highlights & where to watch';
+/** put a line just above the hashtag block (or at the end if there are no hashtags) */
+function withLineBeforeTags(caption: string, line: string) {
+  const lines = caption.split('\n');
+  const i = lines.findIndex(l => /^#\S/.test(l.trim()));
+  if (i < 0) return `${caption}\n\n${line}`;
+  return [...lines.slice(0, i), line, '', ...lines.slice(i)].join('\n');
+}
+
 function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain }: { release: PostItem; brand: SlideBrand; extraTags: string; onChanged?: (r: PostItem) => void; onAddToCarousel?: (blob: Blob, label: string) => void; domain: PostDomain }) {
   const today = todayIst();
   const upcoming = !!release.releaseDate && release.releaseDate > today;
   const cinema = domain.kind === 'cinema';
   const world = domain.kind === 'world' ? release.world : undefined;
-  const [cta, setCta] = useState<string>(() => (world ? 'watched' : defaultCta(release, today)));
+  const [cta, setCta] = useState<string>(() => (world ? 'watched' : cinema ? defaultCta(release, today) : 'auto'));
   const [image, setImage] = useState<string | null>(posterUrl(release.posterPath, 'w780'));
   const [imageLabel, setImageLabel] = useState(release.posterPath ? 'Current poster' : '');
   const [adjust, setAdjust] = useState<Adjust>(DEFAULT_ADJUST);
   const [layout, setLayout] = useState<Layout>('card');
   // Theme: Auto = from genre + this picture's colours; or any preset / your saved theme.
-  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(DEFAULT_CHOICE);
+  const [themeChoice, setThemeChoice] = useStored<ThemeChoice>(`single.theme.${domain.kind}`, DEFAULT_CHOICE);
   const [customThemes, addCustomTheme] = useCustomThemes();
   const palettes = usePalettes([proxied(image)]);
   const theme = resolveTheme(themeChoice, { genres: release.genres, overview: release.overview, palette: palettes[proxied(image) || ''] ?? null, brandAccent: brand.accent, customThemes });
@@ -313,6 +335,17 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
   const [reelOpen, setReelOpen] = useState(false);
   const [editedCaption, setEditedCaption] = useState<string | null>(null);
   const postRef = useRef<HTMLDivElement>(null);
+  // Optional extra slides about this title (story, highlights …) → the post becomes a carousel.
+  const slidesApi = useRef<TitleSlidesApi | null>(null);
+  const titleSlides = useTitleSlides(domain.kind, release.id);
+  const extraSlides = titleSlides.active.length - 1;
+  const swipeHint = titleSlides.state.swipeHint;
+  const [mainForReel, setMainForReel] = useState(false);
+  /** which slide the big preview shows (MAIN = the title picture) */
+  const [previewId, setPreviewId] = useState<string>(MAIN);
+  const [igPreview, setIgPreview] = useState(false);
+  const shownId = titleSlides.active.includes(previewId) ? previewId : MAIN;
+  const pageLabel = (id: string) => (titleSlides.state.pages ? `${titleSlides.active.indexOf(id) + 1}/${titleSlides.active.length}` : '');
   const drag = useRef<{ x: number; y: number; ax: number; ay: number } | null>(null);
 
   const [aiCopy, setAiCopy] = useState<AiCaptionCopy | null>(null);
@@ -322,14 +355,39 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
   useEffect(() => {
     extrasApi.get(domain.kind, release.id).then(e => { setExtra(e); setExtraLoaded(true); }, () => setExtraLoaded(true));
   }, [domain.kind, release.id]);
+  // Where to watch (India), re-checked live — legal sources only.
+  const [where, setWhere] = useState<WhereResult | null>(null);
+  const [whereInCaption, setWhereInCaption] = useState(true);
+  const [whereOpts, setWhereOpts] = useState<WhereOpts>({});
+  useEffect(() => {
+    whereApi.get(domain.kind, release.id).then(setWhere, () => null);
+  }, [domain.kind, release.id]);
+  const whereToSlide = () => {
+    if (!where) return;
+    const body = whereSlideText(where, release);
+    titleSlides.setState(s => {
+      const old = s.slides.find(x => x.kind === 'where');
+      if (old) return { ...s, slides: s.slides.map(x => (x.id === old.id ? { ...x, body, on: true } : x)) };
+      const ns = { ...newInfoSlide('where', release, extra, review), body };
+      return { ...s, slides: [...s.slides, ns], order: [...s.order, ns.id] };
+    });
+  };
   const chips = ratingChips(release, extra, rating);
   const baseTemplate = world
     ? worldSingleCaption(world, { rating, review, handle: brand.handle, extraTags, cta, ai: aiCopy })
     : cinema
     ? cinemaSingleCaption(release, { rating, review, handle: brand.handle, extraTags, today, cta, ai: aiCopy })
-    : singleCaption(release, { rating, review, handle: brand.handle, extraTags, today, ai: aiCopy });
-  const template = captionWithExtras(baseTemplate, extra?.oneLiner, chips.filter(c => !c.startsWith('My ★')));
-  const caption = editedCaption ?? template;
+    : singleCaption(release, { rating, review, handle: brand.handle, extraTags, today, cta, ai: aiCopy });
+  const template = captionWithWhere(captionWithExtras(baseTemplate, extra?.oneLiner, chips.filter(c => !c.startsWith('My ★'))), whereInCaption ? whereLines(where, release, whereOpts) : []);
+  // "👉 Swipe for…" line — only when the post has extra slides; your wording and place are remembered.
+  const [swipeCfg, setSwipeCfg] = useStored<{ on: boolean; text: string; at: 'top' | 'title' | 'end' }>('single.swipeLine', { on: true, text: SWIPE_LINE, at: 'title' });
+  const swipeText = swipeCfg.text.trim();
+  const templateFull = extraSlides > 0 && swipeCfg.on && swipeText
+    ? swipeCfg.at === 'top' ? `${swipeText}\n${template}`
+      : swipeCfg.at === 'end' ? withLineBeforeTags(template, swipeText)
+      : template.replace(/\n/, `\n${swipeText}\n`)
+    : template;
+  const caption = editedCaption ?? templateFull;
   const dirty = rating !== release.myRating || review.trim() !== (release.myReview || '');
   const set = <K extends keyof Adjust>(k: K, v: Adjust[K]) => setAdjust(a => ({ ...a, [k]: v }));
 
@@ -398,11 +456,33 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
     return (await fetch(dataUrl)).blob();
   };
 
+  /** Every slide in order (the title picture + your extra slides). Reels: no swipe hint / page numbers. */
+  // the title picture (shared by the editor preview, the Instagram preview and the exports)
+  const canvas = <PostCanvas release={release} image={image} adjust={adjust} layout={layout} look={look} kicker={kicker} rating={rating} review={review} brand={brand} today={today} theme={theme} oneLiner={extra?.oneLiner} chips={chips.filter(c => !(c.startsWith('My ★') && starsOn && rating != null))} />;
+  const swipePill = extraSlides > 0 && swipeHint ? (
+    <div style={{ position: 'absolute', right: 56, bottom: 36, zIndex: 5, background: theme.accent, color: '#000', fontWeight: 900, fontSize: 30, padding: '10px 22px', borderRadius: 999, fontFamily: theme.bodyFont, boxShadow: '0 8px 24px rgba(0,0,0,0.45)', whiteSpace: 'nowrap' }}>
+      Swipe to know more →
+    </div>
+  ) : null;
+
+  const renderAll = async (forReel = false): Promise<Blob[]> => {
+    if (!extraSlides || !slidesApi.current) return [await renderBlob()];
+    const renderMain = async () => {
+      if (!forReel) return renderBlob();
+      setMainForReel(true);
+      await new Promise<void>(r => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(r, 150))));
+      try { return await renderBlob(); } finally { setMainForReel(false); }
+    };
+    return slidesApi.current.render(renderMain, forReel);
+  };
+
   const addToCarousel = async () => {
     setExporting(true);
     setExportError(null);
     try {
-      onAddToCarousel?.(await renderBlob(), displayTitle(release));
+      // the title picture + every extra slide you made for it, in order
+      const blobs = await renderAll();
+      blobs.forEach((b, i) => onAddToCarousel?.(b, i ? `${displayTitle(release)} · ${i + 1}` : displayTitle(release)));
     } catch (e) {
       setExportError(e instanceof Event || !(e as Error)?.message ? 'A picture on the post couldn’t be loaded. Pick another picture.' : (e as Error).message);
     } finally {
@@ -420,6 +500,19 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
     setExportError(null);
     try {
       // A blob link is more reliable than a long data: URL, and stays on screen as a manual "Save" fallback.
+      if (extraSlides > 0) {
+        const blobs = await renderAll();
+        blobs.forEach((b, i) => {
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(b);
+          a.download = `${release.title.replace(/[^\w]+/g, '-').toLowerCase()}-${i + 1}.jpg`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+          setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+        });
+        return;
+      }
       const blob = await renderBlob();
       if (exported) URL.revokeObjectURL(exported.url);
       const file = { url: URL.createObjectURL(blob), name: `${release.title.replace(/[^\w]+/g, '-').toLowerCase()}-post.jpg`, kb: Math.round(blob.size / 1024) };
@@ -466,7 +559,12 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
       <div className="space-y-4">
         <Section title="1 · Picture" right={imageLabel ? <span className="text-[11px] text-slate-500 truncate max-w-[220px]" title={imageLabel}>{imageLabel}</span> : undefined}>
           {!image && <p className="text-xs text-amber-400">This title has no picture yet — pick one below.</p>}
-          <ImageFinder release={release} current={image} onPick={pickImage} aiTheme={theme.aiTheme} domain={domain} />
+          <ImageFinder release={release} current={image} onPick={pickImage} aiTheme={theme.aiTheme} domain={domain}
+            slideUrls={titleSlides.state.slides.filter(x => x.kind === 'photo').map(x => x.image || '')}
+            onAddSlide={(url, label) => titleSlides.setState(st => {
+              const ns = newPhotoSlide(url, label);
+              return { ...st, slides: [...st.slides, ns], order: [...st.order, ns.id] };
+            })} />
           {image && !image.startsWith('data:') && image !== posterUrl(release.posterPath, 'w780') && (
             <button onClick={useAsPoster} className="text-xs text-indigo-300 hover:text-indigo-200">Use this picture as the title’s poster everywhere (lists, carousels)</button>
           )}
@@ -534,11 +632,20 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
             : <div className="flex justify-center py-4"><Loader2 className="w-4 h-4 animate-spin text-indigo-400" /></div>}
         </Section>
 
+        <Section title="5b · Where to watch">
+          <WhereToWatch domain={domain.kind} id={release.id} value={where} onLoaded={setWhere} opts={whereOpts} setOpts={setWhereOpts}
+            inCaption={whereInCaption} setInCaption={setWhereInCaption} onToSlide={whereToSlide} />
+        </Section>
+
         <Section title="6 · What’s on the picture">
           <LookPanel look={look} onChange={setLook} onReset={resetLook} onCopyAll={copyToAllDesks} surface="single" hide={['note']}
             metaParts={world ? ['year', 'language', 'genre', 'length'] : cinema ? ['language', 'cert', 'length'] : ['language', 'type']}
             kickerInput={{ value: kicker, onChange: setKicker, placeholder: world ? 'e.g. Must watch, Hidden gem, My Review' : cinema ? 'e.g. Coming to cinemas, FDFS, My Review' : 'e.g. Coming to OTT, My Review' }}
             note={<p className="text-[11px] text-slate-500">Show / hide (👁), move onto the picture or below it, resize, reorder, or add your own text and labels. Drag the picture to reposition it.</p>} />
+        </Section>
+
+        <Section title="7 · More slides about this title (optional)" right={extraSlides > 0 ? <span className="text-[11px] text-emerald-400">Carousel · {extraSlides + 1} slides</span> : undefined}>
+          <TitleSlides domainKind={domain.kind} release={release} extra={extra} rating={rating} review={review} image={image} theme={theme} brand={brand} apiRef={slidesApi} state={titleSlides.state} setState={titleSlides.setState} loadImages={q => domain.images(release.id, q)} />
         </Section>
       </div>
 
@@ -550,7 +657,7 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
           {onAddToCarousel && (
             <button onClick={addToCarousel} disabled={exporting || imageStatus === 'error'}
               className="flex items-center gap-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 px-4 py-2 text-sm font-semibold">
-              <Plus className="w-4 h-4" /> Add to carousel
+              <Plus className="w-4 h-4" /> {extraSlides > 0 ? `Add ${extraSlides + 1} slides to carousel` : 'Add to carousel'}
             </button>
           )}
           <button onClick={() => setReelOpen(true)} disabled={exporting || imageStatus === 'error'} title="Turn this post into an Instagram Reel (video, optional music)"
@@ -559,13 +666,13 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
           </button>
           <button onClick={exportJpeg} disabled={exporting}
             className="flex items-center gap-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-4 py-2 text-sm font-semibold">
-            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} {exporting ? 'Making JPEG…' : 'Download JPEG'}
+            {exporting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />} {exporting ? 'Making JPEG…' : extraSlides > 0 ? `Download ${extraSlides + 1} JPEGs` : 'Download JPEG'}
           </button>
           </div>
         </div>
-        {reelOpen && <ReelMaker renderImages={async () => [await renderBlob()]} caption={caption} slideCount={1} title={displayTitle(release)} handle={brand.handle} accent={theme.accent} kind={world ? 'world-single' : cinema ? 'cinema-single' : 'single'} releaseId={release.id} trailerTitles={[trailerTitleOf(release)]} slug={release.title.replace(/[^\w]+/g, '-').toLowerCase()} onClose={() => setReelOpen(false)} />}
+        {reelOpen && <ReelMaker renderImages={() => renderAll(true)} caption={caption} slideCount={1 + extraSlides} title={displayTitle(release)} handle={brand.handle} accent={theme.accent} kind={world ? 'world-single' : cinema ? 'cinema-single' : 'single'} releaseId={release.id} trailerTitles={[trailerTitleOf(release)]} slug={release.title.replace(/[^\w]+/g, '-').toLowerCase()} onClose={() => setReelOpen(false)} />}
         <InstagramPublish
-          renderImages={async () => [await renderBlob()]}
+          renderImages={() => renderAll()}
           caption={caption}
           kind={world ? 'world-single' : cinema ? 'cinema-single' : 'single'}
           releaseId={release.id}
@@ -575,7 +682,7 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
           }
         />
         <FacebookPhotoPublish
-          renderImages={async () => [await renderBlob()]}
+          renderImages={() => renderAll()}
           caption={caption}
           kind={world ? 'world-single' : cinema ? 'cinema-single' : 'single'}
           releaseId={release.id}
@@ -603,15 +710,54 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
             </div>
           </div>
         )}
+        {extraSlides > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5 text-xs">
+            <button onClick={() => { const i = titleSlides.active.indexOf(shownId); setPreviewId(titleSlides.active[Math.max(0, i - 1)]); }} className="rounded bg-slate-800 hover:bg-slate-700 px-2 py-1">◀</button>
+            {titleSlides.active.map((id, i) => {
+              const sl = titleSlides.state.slides.find(x => x.id === id);
+              return (
+                <button key={id} onClick={() => setPreviewId(id)} title={id === MAIN ? 'Title picture' : sl?.heading || sl?.kind}
+                  className={`rounded px-2 py-1 ${shownId === id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                  {i + 1}{id === MAIN ? ' · Title' : ''}
+                </button>
+              );
+            })}
+            <button onClick={() => { const i = titleSlides.active.indexOf(shownId); setPreviewId(titleSlides.active[Math.min(titleSlides.active.length - 1, i + 1)]); }} className="rounded bg-slate-800 hover:bg-slate-700 px-2 py-1">▶</button>
+            <button onClick={() => setIgPreview(true)} className="ml-auto rounded-md bg-slate-800 hover:bg-slate-700 px-2.5 py-1 text-slate-200">Preview on Instagram</button>
+          </div>
+        )}
+        <div className="relative">
+        {shownId !== MAIN && (() => {
+          const sl = titleSlides.state.slides.find(x => x.id === shownId);
+          return sl ? (
+            <div className="absolute inset-0 z-10 rounded-lg overflow-hidden border border-indigo-700" style={{ width: SLIDE_W * PREVIEW_SCALE, height: SLIDE_H * PREVIEW_SCALE }}>
+              <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left', width: SLIDE_W, height: SLIDE_H }}>
+                <TitleSlideNode slide={sl} release={release} extra={extra} rating={rating} image={image} theme={theme} brand={brand} page={pageLabel(sl.id)} />
+              </div>
+            </div>
+          ) : null;
+        })()}
         <div className="rounded-lg overflow-hidden border border-slate-800 cursor-grab active:cursor-grabbing select-none touch-none"
           style={{ width: SLIDE_W * PREVIEW_SCALE, height: SLIDE_H * PREVIEW_SCALE }}
           onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={() => (drag.current = null)} onPointerCancel={() => (drag.current = null)}>
           <div style={{ transform: `scale(${PREVIEW_SCALE})`, transformOrigin: 'top left' }}>
-            <div ref={postRef}>
-              <PostCanvas release={release} image={image} adjust={adjust} layout={layout} look={look} kicker={kicker} rating={rating} review={review} brand={brand} today={today} theme={theme} oneLiner={extra?.oneLiner} chips={chips.filter(c => !(c.startsWith('My ★') && starsOn && rating != null))} />
+            <div ref={postRef} style={{ position: 'relative', width: SLIDE_W, height: SLIDE_H }}>
+              {!mainForReel && swipePill}
+              {canvas}
             </div>
           </div>
         </div>
+        </div>
+        {igPreview && (
+          <InstagramPreview
+            slides={titleSlides.active.map((id): SlideView => {
+              const sl = titleSlides.state.slides.find(x => x.id === id);
+              return id === MAIN || !sl
+                ? { key: MAIN, kind: 'cover', label: displayTitle(release), node: <div style={{ position: 'relative', width: SLIDE_W, height: SLIDE_H }}>{swipePill}{canvas}</div> }
+                : { key: id, kind: sl.kind === 'end' ? 'outro' : 'custom', label: sl.heading || sl.kind, node: <TitleSlideNode slide={sl} release={release} extra={extra} rating={rating} image={image} theme={theme} brand={brand} page={pageLabel(id)} /> };
+            })}
+            handle={brand.handle} accent={theme.accent} caption={caption} onMove={titleSlides.move} onClose={() => setIgPreview(false)} />
+        )}
 
         <Section title="Caption (template — edit freely)"
           right={
@@ -624,13 +770,33 @@ function Editor({ release, brand, extraTags, onChanged, onAddToCarousel, domain 
               </button>
             </div>
           }>
-          {(cinema || world) && (
+          {(
             <label className="flex items-center gap-2 text-xs text-slate-400">
               Ending
               <select value={cta} onChange={e => { setCta(e.target.value); setEditedCaption(null); }} className="flex-1 rounded-md bg-slate-950 border border-slate-700 px-2 py-1.5 text-xs text-white">
-                {(world ? WORLD_CTAS : CINEMA_CTAS).map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+                {(world ? WORLD_CTAS : cinema ? CINEMA_CTAS : OTT_CTAS).map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
               </select>
             </label>
+          )}
+          {extraSlides > 0 && (
+            <div className="space-y-1 rounded-md border border-slate-800 bg-slate-950/50 p-2 text-xs text-slate-300">
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-1.5"><input type="checkbox" checked={swipeCfg.on} onChange={e => { setSwipeCfg(c => ({ ...c, on: e.target.checked })); setEditedCaption(null); }} /> “Swipe” line</label>
+                {swipeCfg.on && (
+                  <select value={swipeCfg.at} onChange={e => { setSwipeCfg(c => ({ ...c, at: e.target.value as 'top' | 'title' | 'end' })); setEditedCaption(null); }} className="rounded-md bg-slate-950 border border-slate-700 px-2 py-1 text-xs">
+                    <option value="title">After the title line</option>
+                    <option value="top">Very first line</option>
+                    <option value="end">Before the hashtags</option>
+                  </select>
+                )}
+                {swipeCfg.on && swipeCfg.text !== SWIPE_LINE && <button onClick={() => { setSwipeCfg(c => ({ ...c, text: SWIPE_LINE })); setEditedCaption(null); }} className="text-[11px] text-slate-500 hover:text-white">Reset wording</button>}
+              </div>
+              {swipeCfg.on && (
+                <input value={swipeCfg.text} onChange={e => { setSwipeCfg(c => ({ ...c, text: e.target.value })); setEditedCaption(null); }} maxLength={120}
+                  className="w-full rounded-md bg-slate-950 border border-slate-700 px-2 py-1 text-xs" placeholder={SWIPE_LINE} />
+              )}
+              <p className="text-[11px] text-slate-500">Used when the post has extra slides · remembered on every desk.</p>
+            </div>
           )}
           <AiCaptionBar
             active={aiCopy}
@@ -702,11 +868,11 @@ export function SinglePostEditor({
         ) : (
           <>
             <input value={filter} onChange={e => setFilter(e.target.value)} className="w-full rounded-md bg-slate-950 border border-slate-700 px-3 py-2 text-sm" placeholder={isWorld ? 'Search approved movies & series…' : cinema ? 'Search approved films or language…' : 'Search approved titles or platform…'} />
-            <div className="max-h-96 overflow-y-auto pr-1 space-y-3">
+            <ClickToScroll maxH="max-h-96" count={options.up.length + options.out.length + options.tba.length} noun="titles"><div className="space-y-3">
               {options.up.length > 0 && <div><div className="text-[11px] font-bold uppercase tracking-wider text-emerald-300 px-2 pb-1">Coming up</div>{options.up.slice(0, 150).map(row)}</div>}
               {options.out.length > 0 && <div><div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 px-2 pb-1">{cinema ? 'Already released' : 'Already streaming'}</div>{options.out.slice(0, 150).map(row)}</div>}
               {options.tba.length > 0 && <div><div className="text-[11px] font-bold uppercase tracking-wider text-amber-300 px-2 pb-1">Date not announced</div>{options.tba.slice(0, 150).map(row)}</div>}
-            </div>
+            </div></ClickToScroll>
           </>
         )}
       </Section>

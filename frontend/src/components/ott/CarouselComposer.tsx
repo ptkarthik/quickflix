@@ -1,5 +1,6 @@
 'use client';
-import { createPortal } from 'react-dom';
+import { Overlay } from './Overlay';
+import { titleKeysOnly, useStored } from '@/lib/useStored';
 import React, { useEffect, useRef, useState } from 'react';
 import { toJpeg } from 'html-to-image';
 import { Check, ChevronDown, Clapperboard, ChevronUp, Copy, Download, Eye, LayoutTemplate, Loader2, MessageSquareQuote, RotateCcw, X, SlidersHorizontal } from 'lucide-react';
@@ -15,7 +16,10 @@ import { ReelMaker } from './ReelMaker';
 import { trailerTitleOf } from './YouTubeMarker';
 import { FacebookPhotoPublish } from './SocialPublish';
 import { InstagramPreview, PicturePicker, SlideStrip, SlideView } from './CarouselTools';
+import { InfoKind, InfoSlide, InfoSlideEditor, KIND_LABEL, SlideStyle, TitleSlideNode, newInfoSlide, newPhotoSlide } from './TitleSlides';
+import { PhotoPicker } from './PhotoPicker';
 import { AiCaptionBar } from './AiCaptionBar';
+import { WhereResult, captionWithWhereList, whereApi, whereShort, whereSlideText } from '@/lib/where';
 import { ThemePicker } from './ThemePicker';
 import { DEFAULT_CHOICE, PostTheme, THEME_PRESETS, ThemeChoice, resolveTheme } from '@/lib/themes';
 import { THEME_CATEGORIES, THEME_LIBRARY } from '@/lib/themeLibrary';
@@ -30,6 +34,8 @@ export interface CustomSlide {
   text: string;
   /** Finished design (from the editor) — shown exactly, without the handle/page footer. */
   bare: boolean;
+  /** An info slide about one title in this carousel (story / highlights / my take / where to watch …). */
+  info?: { titleId: string; slide: InfoSlide };
 }
 
 export const newCustomSlide = (src: string, label: string, bare = false): CustomSlide => ({ id: crypto.randomUUID(), src, label, fit: 'cover', text: '', bare });
@@ -70,7 +76,7 @@ export interface TitleSlideExtras {
 export function CarouselComposer({
   domain, items, pool, brand, controlsTop, controls, cover, outroLine, titleExtras,
   includeOutro, setIncludeOutro, hideCover, setHideCover, customSlides, setCustomSlides,
-  captionTemplate, aiRequest, captionKey, publishKind, slug, onRemoveItem, emptyHint,
+  captionTemplate, aiRequest, captionKey, publishKind, slug, onRemoveItem, emptyHint, theme: themeProp, onTheme, onPosted, publishBlocked,
 }: {
   domain: PostDomain;
   /** Titles on this post (in selection order). */
@@ -98,16 +104,25 @@ export function CarouselComposer({
   slug: string;
   onRemoveItem: (id: string) => void;
   emptyHint: string;
+  /** a theme chosen from outside (ready-made posts) instead of the desk's remembered one */
+  theme?: ThemeChoice;
+  onTheme?: (t: ThemeChoice) => void;
+  onPosted?: (permalink: string | null) => void;
+  /** e.g. "Accept this post first" — posting stays off until it's resolved */
+  publishBlocked?: string | null;
 }) {
   const [order, setOrder] = useState<string[]>([]);
   const [overrides, setOverrides] = useState<Record<string, { url: string; label: string }>>({});
   const [picker, setPicker] = useState<null | { kind: 'title'; releaseId: string } | { kind: 'custom'; id: string } | { kind: 'new' }>(null);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [themeChoice, setThemeChoice] = useState<ThemeChoice>(DEFAULT_CHOICE);
+  // Remembered per desk: post theme, each title's own theme / picture fit, page numbers.
+  const [storedTheme, setStoredTheme] = useStored<ThemeChoice>(`carousel.theme.${domain.kind}`, DEFAULT_CHOICE);
+  const themeChoice = themeProp ?? storedTheme;
+  const setThemeChoice = (t: ThemeChoice) => (onTheme ? onTheme(t) : setStoredTheme(t));
   /** Per-slide theme override: slide key → theme base id ('auto' | preset | custom). */
-  const [slideThemes, setSlideThemes] = useState<Record<string, string>>({});
+  const [slideThemes, setSlideThemes] = useStored<Record<string, string>>(`carousel.slideThemes.${domain.kind}`, {}, titleKeysOnly);
   /** Per-slide picture fit for title slides: poster card (default) / fill the slide / fit the whole picture. */
-  const [slideFit, setSlideFit] = useState<Record<string, 'card' | 'full' | 'fit'>>({});
+  const [slideFit, setSlideFit] = useStored<Record<string, 'card' | 'full' | 'fit'>>(`carousel.fit.${domain.kind}`, {}, titleKeysOnly);
   /** Per-slide fine-tuning + optional own layout (what's shown / where) for one slide. */
   const [slideAdjust, setSlideAdjust] = useState<Record<string, SlideAdjust>>({});
   const [slideLooks, setSlideLooks] = useState<Record<string, PostLook>>({});
@@ -134,7 +149,7 @@ export function CarouselComposer({
   /** Page numbers on slides: titles only (matches the rank badges), all slides, or none — remembered. */
   const [pageMode, setPageMode] = useState<'titles' | 'all' | 'off'>(() => {
     try {
-      const v = localStorage.getItem('carousel.pageMode');
+      const v = localStorage.getItem(`carousel.pageMode.${domain.kind}`) ?? localStorage.getItem('carousel.pageMode');
       return v === 'all' || v === 'off' ? v : 'titles';
     } catch {
       return 'titles';
@@ -142,19 +157,68 @@ export function CarouselComposer({
   });
   const changePageMode = (m: 'titles' | 'all' | 'off') => {
     setPageMode(m);
-    try { localStorage.setItem('carousel.pageMode', m); } catch {}
+    try { localStorage.setItem(`carousel.pageMode.${domain.kind}`, m); } catch {}
   };
 
   const allKeys = [
     ...(hideCover ? [] : ['cover']),
     ...items.map(r => `t:${r.id}`),
-    ...customSlides.map(c => `c:${c.id}`),
+    // info slides follow their title; if the title is removed from the post they go too
+    ...customSlides.filter(c => !c.info || items.some(r => r.id === c.info!.titleId)).map(c => `c:${c.id}`),
     ...(includeOutro ? ['outro'] : []),
   ];
   const keys = mergeOrder(order, allKeys);
   // Titles in the order you arranged them — drives ranks, the cover and the caption.
   const slideItems = keys.filter(k => k.startsWith('t:')).map(k => items.find(r => `t:${r.id}` === k)).filter(Boolean) as PostItem[];
+  // Nothing picked yet → a placeholder instead of "0 movies worth your time"
+  const coverSub = slideItems.length === 0 && /^0 /.test(cover.subheading.trim()) ? 'Pick titles to fill this list' : cover.subheading;
   const withPicture = (r: PostItem): PostItem => (overrides[r.id] ? { ...r, posterPath: overrides[r.id].url } : r);
+
+  // ── where to watch (India) for every title in the post — live, legal sources only ──
+  const [whereMap, setWhereMap] = useState<Record<string, WhereResult>>({});
+  const [whereInCaption, setWhereInCaption] = useState(true);
+  const whereKey = items.map(r => r.id).join(',');
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      for (const r of items) {
+        if (!alive) return;
+        try {
+          const w = await whereApi.get(domain.kind, r.id);
+          if (alive) setWhereMap(m => (m[r.id] ? m : { ...m, [r.id]: w }));
+        } catch { /* shown as "not checked" */ }
+      }
+    })();
+    return () => { alive = false; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [whereKey, domain.kind]);
+  const noSource = slideItems.filter(r => whereMap[r.id] && whereShort(whereMap[r.id], r) === 'Not streaming in India right now');
+
+  // ── info slides about a title (same as the single-title editor's "More slides") ──
+  const [infoEdit, setInfoEdit] = useState<string | null>(null);
+  const [photoFor, setPhotoFor] = useState<string | null>(null);
+  /** Puts info slides right after their title (or after that title's other info slides). */
+  const insertInfo = (titleId: string, slides: InfoSlide[], edit: boolean) => {
+    const r = items.find(x => x.id === titleId);
+    if (!r || !slides.length) return;
+    const made: CustomSlide[] = slides.map(sl => ({ ...newCustomSlide('', `${KIND_LABEL[sl.kind]} · ${displayTitle(r)}`), info: { titleId, slide: sl } }));
+    setCustomSlides(cs => [...cs, ...made]);
+    const next = [...keys];
+    let at = next.indexOf(`t:${titleId}`);
+    while (at >= 0 && next[at + 1]?.startsWith('c:') && customSlides.find(x => `c:${x.id}` === next[at + 1])?.info?.titleId === titleId) at++;
+    next.splice(at + 1, 0, ...made.map(c => `c:${c.id}`));
+    setOrder(next);
+    if (edit) setInfoEdit(made[0].id);
+  };
+  const addInfo = (titleId: string, kind: InfoKind) => {
+    const r = items.find(x => x.id === titleId);
+    if (!r) return;
+    if (kind === 'photo') { setPhotoFor(titleId); return; }
+    const sl = newInfoSlide(kind, r, extras[r.id] || null, r.myReview || '');
+    insertInfo(titleId, [kind === 'where' && whereMap[r.id] ? { ...sl, body: whereSlideText(whereMap[r.id], r) } : sl], true);
+  };
+  const patchInfo = (id: string, patch: Partial<InfoSlide>) => setCustomSlides(cs => cs.map(c => (c.id === id && c.info ? { ...c, info: { ...c.info, slide: { ...c.info.slide, ...patch, auto: patch.auto ?? (patch.bullets ? false : c.info.slide.auto) } } } : c)));
+  const restyleInfo = (id: string, patch: Partial<SlideStyle>) => setCustomSlides(cs => cs.map(c => (c.id === id && c.info ? { ...c, info: { ...c.info, slide: { ...c.info.slide, style: { ...c.info.slide.style, ...patch } } } } : c)));
 
   const moveSlide = (from: number, to: number) => {
     if (to < 0 || to >= keys.length || from === to) return;
@@ -182,7 +246,8 @@ export function CarouselComposer({
     setAiCopy(null);
   }
   // Your chosen one-liners become each title's line in the caption (your own note on the post still wins).
-  const template = captionTemplate(slideItems, withOneLiners(aiCopy, extras));
+  const baseTemplate = captionTemplate(slideItems, withOneLiners(aiCopy, extras));
+  const template = whereInCaption ? captionWithWhereList(baseTemplate, slideItems, whereMap, /^\s*1\./m.test(baseTemplate)) : baseTemplate;
   const caption = editedCaption ?? template;
   const captionEdited = editedCaption !== null;
 
@@ -217,12 +282,17 @@ export function CarouselComposer({
     if (k === 'cover') {
       return {
         key: k, kind: 'cover', label: 'Cover',
-        node: <CoverSlide kicker={reelMode ? noSwipe(cover.kicker) : cover.kicker} heading={reelMode ? noSwipe(cover.heading) || cover.heading : cover.heading} subheading={reelMode && /^swipe/i.test(cover.subheading) ? '' : cover.subheading} items={slideItems.map(withPicture)} brand={brand} total={slideItems.length} theme={theme} swipe={!reelMode} />,
+        node: <CoverSlide kicker={reelMode ? noSwipe(cover.kicker) : cover.kicker} heading={reelMode ? noSwipe(cover.heading) || cover.heading : cover.heading} subheading={reelMode && /^swipe/i.test(coverSub) ? '' : coverSub} items={slideItems.map(withPicture)} brand={brand} total={slideItems.length} theme={theme} swipe={!reelMode && slideItems.length > 0} />,
       };
     }
     if (k === 'outro') return { key: k, kind: 'outro', label: 'Follow slide', node: <OutroSlide brand={brand} line={outroLine} theme={theme} /> };
     if (k.startsWith('c:')) {
       const c = customSlides.find(x => `c:${x.id}` === k)!;
+      if (c.info) {
+        const r = items.find(x => x.id === c.info!.titleId)!;
+        const wr = withPicture(r);
+        return { key: k, kind: 'custom', label: c.label, node: <TitleSlideNode slide={c.info.slide} release={wr} rating={r.myRating} image={posterUrl(wr.posterPath, 'w780')} theme={theme} brand={brand} page={page} /> };
+      }
       return { key: k, kind: 'custom', label: c.label, node: <ImageSlide src={c.src} fit={c.fit} text={c.text} brand={brand} page={page} bare={c.bare} theme={theme} /> };
     }
     const r = slideItems.find(x => `t:${x.id}` === k)!;
@@ -334,8 +404,9 @@ export function CarouselComposer({
             renderImages={renderAll}
             caption={caption}
             kind={publishKind}
+            onPosted={onPosted}
             disabledReason={
-              totalSlides > API_MAX_SLIDES
+              publishBlocked ? publishBlocked : totalSlides > API_MAX_SLIDES
                 ? `Instagram's posting API allows ${API_MAX_SLIDES} slides per carousel; this one has ${totalSlides}. Untick some titles (or the end slide), or download and post from your phone.`
                 : caption.length > 2200 ? 'Caption is longer than 2200 characters.' : null
             }
@@ -345,7 +416,7 @@ export function CarouselComposer({
             caption={caption}
             kind={publishKind}
             disabledReason={
-              totalSlides > API_MAX_SLIDES
+              publishBlocked ? publishBlocked : totalSlides > API_MAX_SLIDES
                 ? `Facebook posts here take up to ${API_MAX_SLIDES} photos; this one has ${totalSlides}. Untick some titles (or the end slide).`
                 : caption.length > 2200 ? 'Caption is longer than 2200 characters.' : null
             }
@@ -409,6 +480,24 @@ export function CarouselComposer({
                     className={`w-full flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] ${adjustFor === s.key ? 'bg-indigo-600 text-white' : slideAdjust[s.key] || slideLooks[s.key] ? 'bg-amber-700/40 text-amber-100' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
                     <SlidersHorizontal className="w-3 h-3" /> {slideAdjust[s.key] || slideLooks[s.key] ? 'Adjusted — edit' : 'Adjust this slide'}
                   </button>
+                  <select value="" onChange={ev => ev.target.value && addInfo(id, ev.target.value as InfoKind)} title="Add a slide about this title right after it"
+                    className="w-full rounded bg-slate-800 border border-slate-700 px-1.5 py-1 text-[11px] text-slate-200">
+                    <option value="">+ Add for this title…</option>
+                    {(['photo', 'story', 'highlights', 'take', 'where', 'text'] as InfoKind[]).map(kd => <option key={kd} value={kd}>{kd === 'photo' ? 'Pictures (pick several)…' : KIND_LABEL[kd]}</option>)}
+                  </select>
+                  {(() => {
+                    const it = items.find(x => x.id === id);
+                    const w = whereMap[id];
+                    if (!it) return null;
+                    const txt = w ? whereShort(w, it) : 'checking where to watch…';
+                    const bad = txt === 'Not streaming in India right now';
+                    return (
+                      <div title={w?.checkedAt ? `Where to watch in India (checked ${w.checkedAt.slice(0, 16).replace('T', ' ')})` : undefined}
+                        className={`truncate rounded px-1.5 py-0.5 text-[10px] ${bad ? 'bg-amber-900/40 text-amber-200' : 'bg-emerald-950/40 text-emerald-200'}`}>
+                        {bad ? '⚠ ' : '📺 '}{txt}
+                      </div>
+                    );
+                  })()}
                   <button onClick={() => setExtrasFor(id)} title={e?.oneLiner || 'Add a one-liner and choose ratings'}
                     className={`w-full flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] ${e?.oneLiner ? 'bg-sky-700/40 text-sky-100' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
                     <MessageSquareQuote className="w-3 h-3" /> {e?.oneLiner ? 'Edit one-liner & ratings' : 'One-liner & ratings'}
@@ -419,6 +508,17 @@ export function CarouselComposer({
             if (s.kind !== 'custom') return themeSelect;
             const c = customSlides.find(x => `c:${x.id}` === s.key);
             if (!c) return themeSelect;
+            if (c.info) {
+              return (
+                <div className="space-y-1" style={{ width: SLIDE_W * PREVIEW_SCALE }}>
+                  {themeSelect}
+                  <button onClick={() => setInfoEdit(x => (x === c.id ? null : c.id))}
+                    className={`w-full flex items-center justify-center gap-1 rounded px-1.5 py-1 text-[11px] ${infoEdit === c.id ? 'bg-indigo-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}>
+                    <SlidersHorizontal className="w-3 h-3" /> Edit text &amp; look
+                  </button>
+                </div>
+              );
+            }
             return (
               <div className="space-y-1 text-[11px]" style={{ width: SLIDE_W * PREVIEW_SCALE }}>
                 {themeSelect}
@@ -436,6 +536,33 @@ export function CarouselComposer({
           }}
         />
 
+        {photoFor && (() => {
+          const r = items.find(x => x.id === photoFor);
+          if (!r) return null;
+          return (
+            <PhotoPicker title={displayTitle(r)} load={q => domain.images(r.id, q)} slotsLeft={Math.max(0, 10 - keys.length)}
+              onSlides={customSlides.filter(c => c.info?.titleId === r.id && c.info.slide.kind === 'photo').map(c => c.info!.slide.image || '')}
+              onAdd={picks => insertInfo(r.id, picks.map(p => newPhotoSlide(p.url, p.label)), false)} onClose={() => setPhotoFor(null)} />
+          );
+        })()}
+        {infoEdit && (() => {
+          const c = customSlides.find(x => x.id === infoEdit);
+          const r = c?.info ? items.find(x => x.id === c.info!.titleId) : null;
+          const view = slideViews.find(v => v.key === `c:${infoEdit}`);
+          if (!c?.info || !r || !view) return null;
+          const PS = 0.3;
+          return (
+            <Overlay onEscape={() => setInfoEdit(null)}>
+            <div className="fixed right-0 top-0 bottom-0 z-[70] w-full max-w-[440px] overflow-y-auto overscroll-contain border-l border-slate-700 bg-slate-900/95 backdrop-blur p-4 space-y-3 shadow-2xl">
+              <div className="mx-auto overflow-hidden rounded-md border border-slate-700" style={{ width: SLIDE_W * PS, height: SLIDE_H * PS }}>
+                <div style={{ transform: `scale(${PS})`, transformOrigin: 'top left', width: SLIDE_W, height: SLIDE_H }}>{view.node}</div>
+              </div>
+              <InfoSlideEditor key={c.id} slide={c.info.slide} release={r} rating={r.myRating} domainKind={domain.kind} loadImages={q => domain.images(r.id, q)} onUpdate={p => patchInfo(c.id, p)} onRestyle={p => restyleInfo(c.id, p)} onClose={() => setInfoEdit(null)} />
+              <button onClick={() => setInfoEdit(null)} className="w-full rounded-md bg-indigo-600 hover:bg-indigo-700 py-1.5 text-sm font-semibold text-white">Done</button>
+            </div>
+            </Overlay>
+          );
+        })()}
         {adjustFor && (() => {
           const view = slideViews.find(v => v.key === adjustFor);
           if (!view) return null;
@@ -451,8 +578,9 @@ export function CarouselComposer({
           );
           const PS = 0.3;
           // Portal to <body>: inside the sticky preview column the drawer was painted under it (clicks missed "Done").
-          return createPortal(
-            <div className="fixed right-0 top-0 bottom-0 z-[70] w-full max-w-[440px] overflow-y-auto border-l border-slate-700 bg-slate-900/95 backdrop-blur p-4 space-y-3 shadow-2xl">
+          return (
+            <Overlay onEscape={() => setAdjustFor(null)}>
+            <div className="fixed right-0 top-0 bottom-0 z-[70] w-full max-w-[440px] overflow-y-auto overscroll-contain border-l border-slate-700 bg-slate-900/95 backdrop-blur p-4 space-y-3 shadow-2xl">
               <div className="flex items-center gap-2">
                 <SlidersHorizontal className="w-4 h-4 text-indigo-400" />
                 <h3 className="flex-1 truncate font-bold text-sm">{view.label}</h3>
@@ -498,14 +626,15 @@ export function CarouselComposer({
                 <button onClick={() => { setSlideAdjust(m => { const n = { ...m }; delete n[adjustFor]; return n; }); setSlideLooks(m => { const n = { ...m }; delete n[adjustFor]; return n; }); setSlideFit(m => { const n = { ...m }; delete n[adjustFor]; return n; }); }} className="rounded-md bg-slate-800 hover:bg-slate-700 px-3 py-1.5">Reset this slide</button>
                 <button onClick={() => setAdjustFor(null)} className="ml-auto rounded-md bg-indigo-600 hover:bg-indigo-700 px-4 py-1.5 font-semibold text-white">Done</button>
               </div>
-            </div>,
-            document.body,
+            </div>
+            </Overlay>
           );
         })()}
         {extrasFor && (() => {
           const r = items.find(x => x.id === extrasFor);
           if (!r) return null;
-          return createPortal(
+          return (
+            <Overlay onEscape={() => setExtrasFor(null)}>
             <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" onClick={() => setExtrasFor(null)}>
               <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-5 space-y-3" onClick={e => e.stopPropagation()}>
                 <div className="flex items-center justify-between">
@@ -515,8 +644,8 @@ export function CarouselComposer({
                 <ExtrasPanel key={r.id} domain={domain.kind} item={r} extra={extras[r.id] || null} onChange={setExtra} />
                 <div className="flex justify-end"><button onClick={() => setExtrasFor(null)} className="rounded-md bg-indigo-600 hover:bg-indigo-700 px-4 py-1.5 text-sm font-semibold">Done</button></div>
               </div>
-            </div>,
-            document.body,
+            </div>
+            </Overlay>
           );
         })()}
         {reelOpen && <ReelMaker renderImages={renderForReel} caption={caption} slideCount={totalSlides} slug={slug} title={cover.heading} handle={brand.handle} accent={postTheme.accent} kind={`${publishKind}-reel`} trailerTitles={items.map(trailerTitleOf)} onClose={() => setReelOpen(false)} />}
@@ -571,6 +700,15 @@ export function CarouselComposer({
             onApply={ai => { setAiCopy(ai); setEditedCaption(null); }}
             onClear={() => { setAiCopy(null); setEditedCaption(null); }}
           />
+          <label className="flex items-center gap-1.5 text-xs text-slate-300">
+            <input type="checkbox" checked={whereInCaption} onChange={e => setWhereInCaption(e.target.checked)} />
+            Add “Where to watch (India)” for every title — licensed platforms only, re-checked live
+          </label>
+          {noSource.length > 0 && (
+            <p className="text-[11px] text-amber-300">
+              ⚠ No licensed source in India right now: {noSource.map(r => r.title).join(', ')}. The caption says so honestly — you can remove them, or keep them as a heads-up.
+            </p>
+          )}
           <textarea value={caption} onChange={e => setEditedCaption(e.target.value)} rows={14}
             className="w-full rounded-md bg-slate-950 border border-slate-700 p-3 text-sm font-mono leading-relaxed" />
           <div className="text-xs text-slate-500">{caption.length}/2200 characters • {(caption.match(/#\w+/g) || []).length}/30 hashtags</div>

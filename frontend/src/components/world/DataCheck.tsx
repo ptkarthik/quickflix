@@ -1,9 +1,91 @@
 'use client';
+import { ClickToScroll } from '@/components/ott/ClickToScroll';
 import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, CheckCircle2, ChevronDown, ChevronUp, Globe2, Loader2, RefreshCw, TriangleAlert } from 'lucide-react';
-import { WorldHealth, worldApi } from '@/lib/world';
+import { CoverageRow, WorldHealth, langName, worldApi } from '@/lib/world';
 
 const n = (v?: number | null) => (v ?? 0).toLocaleString('en-IN');
+
+/** Second source: IMDb's own full title list. Adds what TMDB discover missed — matched by IMDb id, so never a duplicate. */
+function ImdbCrossCheck({ scanning, duplicates, onStarted }: { scanning: boolean; duplicates: number; onStarted: () => void }) {
+  const [votes, setVotes] = useState('1000');
+  const [msg, setMsg] = useState<string | null>(null);
+  return (
+    <div className="rounded-md border border-slate-800 p-2 space-y-1.5">
+      <div className="font-semibold text-slate-300 flex items-center gap-1.5"><Globe2 className="w-3.5 h-3.5" /> Second source — IMDb’s full title list</div>
+      <p className="text-slate-400">Checks every IMDb movie and series with enough votes against your database. Anything missing is matched to TMDB by its IMDb id and added as “to review”. Titles already here (same IMDb id or TMDB id) are skipped, so nothing is added twice.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <select value={votes} onChange={e => setVotes(e.target.value)} className="rounded bg-slate-950 border border-slate-700 px-2 py-1">
+          {[['5000', '5,000+ IMDb votes (famous)'], ['1000', '1,000+ IMDb votes (well-known)'], ['500', '500+ IMDb votes (deeper)']].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <button disabled={scanning} onClick={async () => {
+          if (!confirm('Cross-check with IMDb’s full list now? New titles arrive as “to review”. Runs in the background.')) return;
+          await worldApi.imdbCrossCheck(Number(votes));
+          onStarted();
+        }} className="flex items-center gap-1 rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-2.5 py-1 font-semibold">
+          {scanning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Globe2 className="w-3 h-3" />} {scanning ? 'Another job is running…' : 'Cross-check with IMDb'}
+        </button>
+      </div>
+      <div className="flex flex-wrap items-center gap-2">
+        <span className={duplicates ? 'text-amber-300' : 'text-emerald-400'}>{duplicates ? `${duplicates} title${duplicates === 1 ? '' : 's'} stored twice (same IMDb title)` : 'No duplicates (same IMDb title stored twice).'}</span>
+        {duplicates > 0 && <button onClick={async () => { const r = await worldApi.dedupe(); setMsg(`${r.hidden} duplicate${r.hidden === 1 ? '' : 's'} hidden — approved titles were kept.`); onStarted(); }} className="rounded bg-slate-800 hover:bg-slate-700 px-2 py-1">Hide duplicates</button>}
+        {msg && <span className="text-emerald-300">{msg}</span>}
+      </div>
+    </div>
+  );
+}
+
+/** Is every well-known title here? Per language: TMDB titles with 50+ votes vs held in the app. */
+function Coverage({ scanning, onFill }: { scanning: boolean; onFill: () => void }) {
+  const [kind, setKind] = useState<'movie' | 'tv'>('movie');
+  const [rows, setRows] = useState<CoverageRow[] | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [all, setAll] = useState(false);
+  const check = async (fresh = false) => {
+    setBusy(true);
+    try { setRows(await worldApi.coverage(kind, 50, fresh)); } catch { setRows([]); } finally { setBusy(false); }
+  };
+  const under = (rows || []).filter(r => r.percent < 98);
+  const missing = under.reduce((a, r) => a + (r.tmdb - r.ours), 0);
+  return (
+    <div className="rounded-md border border-slate-800 p-2 space-y-1.5">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="font-semibold text-slate-300 flex items-center gap-1.5"><Globe2 className="w-3.5 h-3.5" /> Coverage — is every well-known title here?</span>
+        <div className="flex rounded bg-slate-950 p-0.5">
+          {(['movie', 'tv'] as const).map(k => <button key={k} onClick={() => { setKind(k); setRows(null); }} className={`px-2 py-0.5 rounded ${kind === k ? 'bg-indigo-600 text-white' : 'text-slate-400'}`}>{k === 'movie' ? 'Movies' : 'Series'}</button>)}
+        </div>
+        <button onClick={() => check(!!rows)} disabled={busy} className="flex items-center gap-1 rounded bg-slate-800 hover:bg-slate-700 disabled:opacity-50 px-2 py-1">{busy ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />} {busy ? 'Checking ~1 min…' : rows ? 'Check again' : 'Check coverage'}</button>
+      </div>
+      <p className="text-slate-500">“Well-known” = 50+ votes on TMDB. Languages, not countries: Chinese films are under Chinese — Mandarin / Cantonese, Iranian films under Persian (Iran).</p>
+      {rows && (
+        <>
+          <p className={under.length ? 'text-amber-300' : 'text-emerald-300'}>
+            {under.length ? `${under.length} language${under.length === 1 ? '' : 's'} below 98% — about ${missing.toLocaleString('en-IN')} well-known ${kind === 'movie' ? 'movies' : 'series'} missing.` : `All ${rows.length} languages are 98–100% covered.`}
+          </p>
+          <ClickToScroll maxH="max-h-56" count={(all ? rows.length : Math.min(15, rows.length))} noun="languages"><div className="">
+            <table className="w-full">
+              <thead><tr className="text-left text-slate-500"><th className="py-0.5 font-medium">Language</th><th className="text-right font-medium">On TMDB</th><th className="text-right font-medium">Here</th><th className="text-right font-medium">Coverage</th></tr></thead>
+              <tbody>
+                {(all ? rows : rows.slice(0, 15)).map(r => (
+                  <tr key={r.code} className="border-t border-slate-800/70">
+                    <td className="py-0.5 text-slate-300">{langName(r.code) || r.name}</td>
+                    <td className="text-right tabular-nums">{r.tmdb.toLocaleString('en-IN')}</td>
+                    <td className="text-right tabular-nums">{r.ours.toLocaleString('en-IN')}</td>
+                    <td className={`text-right tabular-nums font-semibold ${r.percent >= 98 ? 'text-emerald-400' : r.percent >= 70 ? 'text-amber-300' : 'text-red-400'}`}>{r.percent}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div></ClickToScroll>
+          {rows.length > 15 && <button onClick={() => setAll(a => !a)} className="text-slate-400 hover:text-white">{all ? 'Show fewer' : `Show all ${rows.length} languages`}</button>}
+        </>
+      )}
+      <button disabled={scanning} onClick={onFill} className="flex items-center gap-1 rounded bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 px-2.5 py-1 font-semibold">
+        {scanning ? <Loader2 className="w-3 h-3 animate-spin" /> : <Globe2 className="w-3 h-3" />} {scanning ? 'Filling…' : 'Fill the gaps (movies + series)'}
+      </button>
+    </div>
+  );
+}
 
 /** Data check for the World database: gaps, source status, background jobs, and the "every language" fill. */
 export function DataCheck({ onChanged }: { onChanged: () => void }) {
@@ -81,6 +163,12 @@ export function DataCheck({ onChanged }: { onChanged: () => void }) {
               </div>
               {sweep && !sweep.active && sweep.finishedAt && <p className="text-emerald-300">Last run: {n(sweep.seen)} seen, {n(sweep.added)} new{sweep.error ? ` · error: ${sweep.error}` : ''}.</p>}
             </div>
+            <ImdbCrossCheck scanning={!!h.scan.active} duplicates={h.duplicateImdbIds?.length || 0} onStarted={() => setTimeout(load, 1000)} />
+            <Coverage scanning={!!h.scan.active} onFill={async () => {
+              if (!confirm('Scan every language that is below 98% until all its well-known movies and series are in? New titles arrive as “to review” — nothing is approved for posts. Takes 30–60 min in the background.')) return;
+              await worldApi.fillCoverage({ kinds: ['movie', 'tv'], minVotes: 50 });
+              setTimeout(load, 1000);
+            }} />
           </div>
         </div>
       )}

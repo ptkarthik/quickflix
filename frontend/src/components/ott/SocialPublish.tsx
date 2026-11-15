@@ -1,4 +1,5 @@
 'use client';
+import { Overlay } from './Overlay';
 /* eslint-disable @next/next/no-img-element -- local blob previews */
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ExternalLink, Link2, Loader2, Send, Settings2, Unlink, X } from 'lucide-react';
@@ -52,7 +53,8 @@ function Setup({ title, steps, note }: { title: string; steps: string[]; note?: 
 
 function Confirm({ title, children, onCancel, onPost, posting, postLabel, color }: { title: string; children: React.ReactNode; onCancel: () => void; onPost: () => void; posting: boolean; postLabel: string; color: string }) {
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-4" onClick={() => !posting && onCancel()}>
+    <Overlay onEscape={() => { if (!posting) onCancel(); }}>
+    <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4" onClick={() => !posting && onCancel()}>
       <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-5 space-y-4" onClick={e => e.stopPropagation()}>
         <div className="flex items-center justify-between">
           <h3 className="text-lg font-bold">{title}</h3>
@@ -67,6 +69,7 @@ function Confirm({ title, children, onCancel, onPost, posting, postLabel, color 
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }
 

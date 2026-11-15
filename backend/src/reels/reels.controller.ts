@@ -81,9 +81,9 @@ export class ReelsController {
    * pictures, audio = your music; options = JSON {clips:[{start,end}], framing, audio: trailer|music|mix|none, trackId, …}.
    */
   @Post('trailer')
-  @UseInterceptors(FileFieldsInterceptor([{ name: 'video', maxCount: 1 }, { name: 'overlay', maxCount: 1 }, { name: 'intro', maxCount: 1 }, { name: 'outro', maxCount: 1 }, { name: 'audio', maxCount: 1 }], { limits: { fileSize: 600 * 1024 * 1024 } }))
+  @UseInterceptors(FileFieldsInterceptor([{ name: 'video', maxCount: 1 }, { name: 'overlay', maxCount: 1 }, { name: 'intro', maxCount: 1 }, { name: 'outro', maxCount: 1 }, { name: 'signature', maxCount: 1 }, { name: 'audio', maxCount: 1 }], { limits: { fileSize: 600 * 1024 * 1024 } }))
   async trailer(
-    @UploadedFiles() files: { video?: Express.Multer.File[]; overlay?: Express.Multer.File[]; intro?: Express.Multer.File[]; outro?: Express.Multer.File[]; audio?: Express.Multer.File[] },
+    @UploadedFiles() files: { video?: Express.Multer.File[]; overlay?: Express.Multer.File[]; intro?: Express.Multer.File[]; outro?: Express.Multer.File[]; signature?: Express.Multer.File[]; audio?: Express.Multer.File[] },
     @Body('options') options: string,
     @Res({ passthrough: true }) res: Response,
   ) {
@@ -93,7 +93,7 @@ export class ReelsController {
     } catch {}
     const video = files?.video?.[0];
     if (!video) throw new BadRequestException('Choose the trailer video file.');
-    const r = await this.reels.renderTrailer({ video, overlay: files.overlay?.[0]?.buffer, intro: files.intro?.[0]?.buffer, outro: files.outro?.[0]?.buffer, audio: files.audio?.[0] || null, options: opts });
+    const r = await this.reels.renderTrailer({ video, overlay: files.overlay?.[0]?.buffer, intro: files.intro?.[0]?.buffer, outro: files.outro?.[0]?.buffer, signature: files.signature?.[0]?.buffer, audio: files.audio?.[0] || null, options: opts });
     res.set({
       'Content-Type': 'video/mp4',
       'Content-Disposition': 'attachment; filename="trailer-reel.mp4"',

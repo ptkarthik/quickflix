@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import { CriticsService } from './critics.service';
+import { WhereService } from './where.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { OttAiService, THEATRE, safeAiLine, CAPTION_LANGUAGES, CAPTION_TONES } from '../ott/ott-ai.service';
 import { LANGUAGE_LABELS } from '../ott/ott-text.util';
@@ -36,7 +37,21 @@ export class ExtrasService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ai: OttAiService,
-    private readonly imdbFile: ImdbDatasetService, private readonly critics: CriticsService) {}
+    private readonly imdbFile: ImdbDatasetService,
+    private readonly critics: CriticsService,
+    private readonly where: WhereService,
+  ) {}
+
+  /** Where to watch (India), re-checked live — legal sources only. */
+  async whereToWatch(domainIn: string, id: string, force = false) {
+    const domain = this.domain(domainIn);
+    const m = await this.meta(domain, id);
+    return this.where.forTitle(m.kind, m.tmdbId, { force, worldId: domain === 'world' ? id : null });
+  }
+
+  checkSourceLink(url: string) {
+    return this.where.checkLink(url);
+  }
 
   private domain(d: string): ExtraDomain {
     if (!DOMAINS.includes(d as ExtraDomain)) throw new BadRequestException('domain must be ott, cinema or world');

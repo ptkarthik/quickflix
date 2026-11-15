@@ -1,4 +1,5 @@
 'use client';
+import { ClickToScroll } from '@/components/ott/ClickToScroll';
 import React, { useMemo, useState } from 'react';
 import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { LANGUAGES, PUBLISHABLE, TRUST_STYLE, addDays, fmtDate, fmtRange, todayIst, weekStart } from '@/lib/ott';
@@ -12,10 +13,12 @@ import { SinglePostEditor } from '@/components/ott/SinglePostEditor';
 import { CarouselComposer, CustomSlide, newCustomSlide } from '@/components/ott/CarouselComposer';
 import { BrandSection, ModeSwitch, usePersistentState } from '@/components/ott/PostBuilder';
 import { HeadingPicker } from '@/components/ott/HeadingPicker';
+import { ReadyPosts } from '@/components/ott/ReadyPosts';
 
-type Mode = 'single' | CinemaPostKind;
-const MODES: Mode[] = ['single', 'weekly', 'month', 'now', 'postponed', 'picks'];
+type Mode = 'ready' | 'single' | CinemaPostKind;
+const MODES: Mode[] = ['ready', 'single', 'weekly', 'month', 'now', 'postponed', 'picks'];
 const MODE_LABEL: Record<Mode, string> = {
+  ready: '⚡ Ready-made',
   single: 'Single film (editor)',
   weekly: 'This week',
   month: 'This month',
@@ -32,10 +35,10 @@ const byDate = (a: PostItem, b: PostItem) => (a.releaseDate || '9999').localeCom
  * Instagram posts for cinemas: the same editor, carousel, themes, AI posters, AI captions and one-click posting
  * as OTT — fed only with films you approved in the Cinema Desk.
  */
-export function CinemaPostBuilder({ approved, initialSingleId, onChanged }: { approved: CinemaRelease[]; initialSingleId?: string | null; onChanged?: (r: CinemaRelease) => void }) {
+export function CinemaPostBuilder({ approved, all, initialSingleId, onChanged }: { approved: CinemaRelease[]; all?: CinemaRelease[]; initialSingleId?: string | null; onChanged?: (r: CinemaRelease) => void }) {
   const today = todayIst();
   const films = useMemo(() => approved.map(cinemaPostItem), [approved]);
-  const [mode, setMode] = useState<Mode>(initialSingleId ? 'single' : 'weekly');
+  const [mode, setMode] = useState<Mode>(initialSingleId ? 'single' : 'ready');
   // Same brand as the OTT desk — it's the same Instagram account.
   const [brand, setBrand] = usePersistentState<SlideBrand>('ott.brand', { handle: '@yourhandle', accent: '#FACC15' });
   const [extraTags, setExtraTags] = usePersistentState<string>('cinema.extraTags', '');
@@ -55,7 +58,7 @@ export function CinemaPostBuilder({ approved, initialSingleId, onChanged }: { ap
   const [coverSub, setCoverSub] = useState<string | null>(null);
   const [pickIds, setPickIds] = useState<string[]>([]);
   const [ctas, setCtas] = useState<Record<string, string>>({});
-  const kind: CinemaPostKind = mode === 'single' ? 'weekly' : mode;
+  const kind: CinemaPostKind = mode === 'single' || mode === 'ready' ? 'weekly' : mode;
   const cta = ctas[kind] || DEFAULT_CTA[kind];
 
   const langOk = (r: PostItem) => !langs.length || (r.language && langs.includes(r.language)) || (r.cinema?.alsoIn || '').split(',').some(l => langs.includes(l));
@@ -89,6 +92,8 @@ export function CinemaPostBuilder({ approved, initialSingleId, onChanged }: { ap
     <BrandSection brand={brand} setBrand={setBrand} extraTags={extraTags} setExtraTags={setExtraTags} carousel={mode !== 'single'}
       hideCover={hideCover} setHideCover={setHideCover} includeOutro={includeOutro} setIncludeOutro={setIncludeOutro} />
   );
+
+  if (mode === 'ready') return <ReadyPosts desk="cinema" cinema={all || approved} onApprovedCinema={onChanged} brand={brand} extraTags={extraTags} controlsTop={<>{modeSwitch}{brandSection}</>} />;
 
   if (mode === 'single') {
     return (
@@ -169,13 +174,13 @@ export function CinemaPostBuilder({ approved, initialSingleId, onChanged }: { ap
       {candidates.length === 0 ? (
         <p className="text-sm text-slate-500">No approved films for this. Approve films in the Review Queue first{kind === 'weekly' || kind === 'month' ? ', or pick another week/month' : ''}.</p>
       ) : (
-        <ul className="space-y-0.5 max-h-96 overflow-y-auto pr-1">
+        <ClickToScroll maxH="max-h-96" count={candidates.length} noun="films"><ul className="space-y-0.5">
           {candidates.map(r =>
             kind === 'picks'
               ? filmRow(r, pickIds.includes(r.id), () => setPickIds(ids => (ids.includes(r.id) ? ids.filter(x => x !== r.id) : [...ids, r.id])))
               : filmRow(r, !excluded.has(r.id), () => setExcluded(ex => { const n = new Set(ex); if (n.has(r.id)) n.delete(r.id); else n.add(r.id); return n; })),
           )}
-        </ul>
+        </ul></ClickToScroll>
       )}
       {items.some(weakTrust) && (
         <p className="text-[11px] text-amber-400">⚠ Some ticked films are not Confirmed/Corroborated — double-check their dates before posting.</p>

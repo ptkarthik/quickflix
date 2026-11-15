@@ -1,4 +1,5 @@
 'use client';
+import { Overlay } from '@/components/ott/Overlay';
 /* eslint-disable @next/next/no-img-element */
 import React, { useEffect, useState } from 'react';
 import { Check, ExternalLink, ImagePlus, Loader2, RefreshCw, X } from 'lucide-react';
@@ -38,7 +39,8 @@ export function WorldDetail({ title, onClose, onChanged, onMakePost }: { title: 
   const row = (label: string, value: React.ReactNode) => value ? <div className="flex gap-3 text-sm"><span className="w-28 shrink-0 text-slate-500">{label}</span><span className="text-slate-200">{value}</span></div> : null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
+    <Overlay onEscape={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-4" onClick={onClose}>
       <div className="w-full max-w-3xl max-h-[92vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900" onClick={e => e.stopPropagation()}>
         <div className="relative h-48 bg-slate-800">
           {backdrop && <img src={backdrop} alt="" className="absolute inset-0 w-full h-full object-cover opacity-50" />}
@@ -127,5 +129,6 @@ export function WorldDetail({ title, onClose, onChanged, onMakePost }: { title: 
         </div>
       </div>
     </div>
+    </Overlay>
   );
 }

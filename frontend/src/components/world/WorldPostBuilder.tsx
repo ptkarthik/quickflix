@@ -1,7 +1,9 @@
 'use client';
+import { ClickToScroll } from '@/components/ott/ClickToScroll';
 /* eslint-disable @next/next/no-img-element */
 import React, { useEffect, useMemo, useState } from 'react';
 import { HeadingPicker } from '@/components/ott/HeadingPicker';
+import { ReadyPosts } from '@/components/ott/ReadyPosts';
 import { ArrowDown, ArrowUp, Check, Loader2, RefreshCw, X } from 'lucide-react';
 import { posterUrl } from '@/lib/ott';
 import { WORLD_DOMAIN, worldPostItem } from '@/lib/postDomain';
@@ -16,15 +18,15 @@ import { WorldFilters } from './WorldFilters';
 import { PresetGallery } from './PresetGallery';
 import { ListPreset, presetFilter } from '@/lib/worldPresets';
 
-type Mode = 'single' | 'bulk';
-const MODE_LABEL: Record<Mode, string> = { single: 'Single title (editor)', bulk: 'Bulk suggestions (Top N)' };
+type Mode = 'ready' | 'single' | 'bulk';
+const MODE_LABEL: Record<Mode, string> = { ready: '⚡ Ready-made', single: 'Single title (editor)', bulk: 'Bulk suggestions (Top N)' };
 
 /**
  * Instagram posts from the World Movies & Series database: one title in the editor, or a ranked
  * "Top N" carousel built from filters. Only approved titles go on a post; facts come from TMDB/OMDb.
  */
 export function WorldPostBuilder({ initialSingle, facets, onChanged }: { initialSingle?: WorldTitle | null; facets: WorldFacets | null; onChanged?: (w: WorldTitle) => void }) {
-  const [mode, setMode] = useState<Mode>(initialSingle ? 'single' : 'bulk');
+  const [mode, setMode] = useState<Mode>(initialSingle ? 'single' : 'ready');
   const [brand, setBrand] = usePersistentState<SlideBrand>('ott.brand', { handle: '@yourhandle', accent: '#FACC15' });
   const [extraTags, setExtraTags] = usePersistentState<string>('world.extraTags', '');
   const [includeOutro, setIncludeOutro] = usePersistentState<boolean>('world.outro', true);
@@ -160,11 +162,13 @@ export function WorldPostBuilder({ initialSingle, facets, onChanged }: { initial
   const approvedItems = useMemo(() => approved.map(worldPostItem), [approved]);
   const byId = (id: string) => picks.find(p => p.id === id);
 
-  const modeSwitch = <ModeSwitch modes={['single', 'bulk'] as Mode[]} labels={MODE_LABEL} mode={mode} onChange={setMode} />;
+  const modeSwitch = <ModeSwitch modes={['ready', 'single', 'bulk'] as Mode[]} labels={MODE_LABEL} mode={mode} onChange={setMode} />;
   const brandSection = (
     <BrandSection brand={brand} setBrand={setBrand} extraTags={extraTags} setExtraTags={setExtraTags} carousel={mode !== 'single'}
       hideCover={hideCover} setHideCover={setHideCover} includeOutro={includeOutro} setIncludeOutro={setIncludeOutro} />
   );
+
+  if (mode === 'ready') return <ReadyPosts desk="world" brand={brand} extraTags={extraTags} controlsTop={<>{modeSwitch}{brandSection}</>} />;
 
   if (mode === 'single') {
     return (
@@ -180,7 +184,8 @@ export function WorldPostBuilder({ initialSingle, facets, onChanged }: { initial
     );
   }
 
-  const kindWord = filter.kind === 'tv' ? 'series' : filter.kind === 'movie' ? 'movies' : 'titles';
+  const kindWordOf = (n: number) => (filter.kind === 'tv' ? 'series' : filter.kind === 'movie' ? (n === 1 ? 'movie' : 'movies') : n === 1 ? 'title' : 'titles');
+  const kindWord = kindWordOf(picks.length);
   const coverKicker = kickerEdited ?? (filter.kind === 'tv' ? 'Series picks' : filter.kind === 'movie' ? 'Movie picks' : 'Our picks');
   const coverSub = subEdited ?? `${picks.length} ${kindWord} worth your time`;
   const controls = (
@@ -200,7 +205,7 @@ export function WorldPostBuilder({ initialSingle, facets, onChanged }: { initial
           <input type="number" min={1} max={10} value={n} onChange={e => setN(Math.max(1, Math.min(10, Number(e.target.value) || 1)))} className="w-14 rounded-md bg-slate-950 border border-slate-700 px-2 py-1" />
           <button onClick={() => addTop()} disabled={!results.length || picks.length >= n} className="rounded-md bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 px-3 py-1.5 font-semibold">Add top {Math.max(0, n - picks.length)}</button>
         </div>
-        <ul className="space-y-0.5 max-h-80 overflow-y-auto pr-1">
+        <ClickToScroll maxH="max-h-80" count={results.length} noun="titles"><ul className="space-y-0.5">
           {results.map(t => (
             <li key={t.id} className={`flex items-center gap-2 rounded-md px-2 py-1 text-sm ${pickIds.has(t.id) ? 'bg-indigo-600/20' : 'hover:bg-slate-800/60'}`}>
               {t.posterPath ? <img src={posterUrl(t.posterPath, 'w342') || ''} alt="" className="w-6 h-9 rounded object-cover shrink-0" /> : <span className="w-6 h-9 rounded bg-slate-800 shrink-0" />}
@@ -223,7 +228,7 @@ export function WorldPostBuilder({ initialSingle, facets, onChanged }: { initial
               </button>
             </li>
           )}
-        </ul>
+        </ul></ClickToScroll>
         <p className="text-[11px] text-slate-500">Ratings show their source: IMDb (from OMDb) when available, otherwise TMDB. “Where to watch” = streaming in India (TMDB/JustWatch).</p>
       </section>
 
@@ -283,7 +288,7 @@ export function WorldPostBuilder({ initialSingle, facets, onChanged }: { initial
         brand={brand}
         controlsTop={<>{modeSwitch}<PresetGallery activeId={preset?.id || null} n={n} onN={setN} onPick={pickPreset} />{brandSection}</>}
         controls={controls}
-        cover={{ kicker: coverKicker, heading, subheading: subEdited ?? `${items.length} ${kindWord} worth your time` }}
+        cover={{ kicker: coverKicker, heading, subheading: subEdited ?? `${items.length} ${kindWordOf(items.length)} worth your time` }}
         outroLine={worldCtaOf(cta).outro}
         titleExtras={(r, rank) => {
           const w = r.world!;

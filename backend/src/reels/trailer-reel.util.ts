@@ -2,7 +2,7 @@
  * ffmpeg command for a Reel cut from a trailer: chosen clips (in order) → 9:16, optional title overlay (transparent PNG),
  * optional intro / outro picture, and the trailer's sound, music, both mixed, or silence.
  */
-import { FPS, H, W } from './reels.util';
+import { Effect, FPS, H, W, effectFilter } from './reels.util';
 
 export interface TrailerClip { start: number; end: number }
 export type TrailerAudio = 'trailer' | 'music' | 'mix' | 'none';
@@ -17,10 +17,13 @@ export interface TrailerReelOptions {
   overlay?: string | null;
   intro?: { path: string; seconds: number } | null;
   outro?: { path: string; seconds: number } | null;
+  /** your signature card ("Naan ungal Karthik — follow …"), at the start or the end (before the outro picture) */
+  signature?: { path: string; seconds: number; at: 'start' | 'end' } | null;
+  effect?: Effect;
 }
 
-export const trailerReelSeconds = (o: Pick<TrailerReelOptions, 'clips' | 'intro' | 'outro'>) =>
-  o.clips.reduce((a, c) => a + (c.end - c.start), 0) + (o.intro?.seconds || 0) + (o.outro?.seconds || 0);
+export const trailerReelSeconds = (o: Pick<TrailerReelOptions, 'clips' | 'intro' | 'outro' | 'signature'>) =>
+  o.clips.reduce((a, c) => a + (c.end - c.start), 0) + (o.intro?.seconds || 0) + (o.outro?.seconds || 0) + (o.signature?.seconds || 0);
 
 /** Parse "Duration: 00:02:31.45" and whether an audio stream exists, from `ffmpeg -i file` output. */
 export function probeFromStderr(stderr: string): { duration: number | null; hasAudio: boolean; hasVideo: boolean } {
@@ -49,6 +52,8 @@ export function trailerReelArgs(trailerPath: string, o: TrailerReelOptions, outP
   if (o.intro) args.push('-loop', '1', '-framerate', String(FPS), '-t', String(o.intro.seconds), '-i', o.intro.path);
   const outroIdx = o.outro ? idx++ : -1;
   if (o.outro) args.push('-loop', '1', '-framerate', String(FPS), '-t', String(o.outro.seconds), '-i', o.outro.path);
+  const sigIdx = o.signature ? idx++ : -1;
+  if (o.signature) args.push('-loop', '1', '-framerate', String(FPS), '-t', String(o.signature.seconds), '-i', o.signature.path);
   const useMusic = (o.audio === 'music' || o.audio === 'mix') && !!o.music;
   const musicIdx = useMusic ? idx++ : -1;
   if (useMusic) args.push('-stream_loop', '-1', '-ss', String(o.music!.start), '-i', o.music!.path);
@@ -75,8 +80,11 @@ export function trailerReelArgs(trailerPath: string, o: TrailerReelOptions, outP
     else f.push(`anullsrc=r=44100:cl=stereo,atrim=0:${len},${NORM_A}[ca${i}]`);
   });
   f.push(`${o.clips.map((_, i) => `[cv${i}][ca${i}]`).join('')}concat=n=${n}:v=1:a=1[clipv0][clipa]`);
-  if (o.overlay) f.push(`[clipv0][${overlayIdx}:v]overlay=0:0:format=auto,${NORM_V}[clipv]`);
-  else f.push(`[clipv0]null[clipv]`);
+  const fx = effectFilter(o.effect);
+  if (fx) f.push(`[clipv0]${fx},${NORM_V}[clipfx]`);
+  else f.push(`[clipv0]null[clipfx]`);
+  if (o.overlay) f.push(`[clipfx][${overlayIdx}:v]overlay=0:0:format=auto,${NORM_V}[clipv]`);
+  else f.push(`[clipfx]null[clipv]`);
 
   const still = (inIdx: number, name: string, seconds: number) => {
     f.push(`[${inIdx}:v]split=2[${name}b][${name}f]`);
@@ -87,7 +95,10 @@ export function trailerReelArgs(trailerPath: string, o: TrailerReelOptions, outP
   };
   const parts: string[] = [];
   if (o.intro) { still(introIdx, 'in', o.intro.seconds); parts.push('[inv][ina]'); }
+  if (o.signature) still(sigIdx, 'sig', o.signature.seconds);
+  if (o.signature?.at === 'start') parts.push('[sigv][siga]');
   parts.push('[clipv][clipa]');
+  if (o.signature?.at === 'end') parts.push('[sigv][siga]');
   if (o.outro) { still(outroIdx, 'out', o.outro.seconds); parts.push('[outv][outa]'); }
   if (parts.length > 1) f.push(`${parts.join('')}concat=n=${parts.length}:v=1:a=1[vout][tra]`);
   else { f.push('[clipv]null[vout]'); f.push('[clipa]anull[tra]'); }

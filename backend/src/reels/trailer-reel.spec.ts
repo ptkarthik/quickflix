@@ -20,7 +20,7 @@ describe('trailer reels', () => {
     expect(fc).toContain('[1:v]trim=duration=2.000');
     expect(fc).toContain('[0:a]asetpts');
     expect(fc).toContain('concat=n=2:v=1:a=1[clipv0][clipa]');
-    expect(fc).toContain('[clipv0][2:v]overlay=0:0');
+    expect(fc).toContain('[clipfx][2:v]overlay=0:0');
     expect(fc).toContain('[inv][ina][clipv][clipa]concat=n=2');
     expect(fc).toContain('amix=inputs=2');
     expect(a).toEqual(expect.arrayContaining(['-stream_loop', '-1', '-ss', '5', '-i', 'm.mp3']));

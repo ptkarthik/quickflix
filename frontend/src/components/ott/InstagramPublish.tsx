@@ -1,4 +1,5 @@
 'use client';
+import { Overlay } from './Overlay';
 /* eslint-disable @next/next/no-img-element -- local blob previews */
 import React, { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, ExternalLink, Loader2, Send, Settings2, X } from 'lucide-react';
@@ -18,6 +19,7 @@ export function InstagramPublish({
   kind,
   releaseId,
   disabledReason,
+  onPosted,
 }: {
   /** Renders the post's JPEG(s) at click time. */
   renderImages: () => Promise<Blob[]>;
@@ -25,6 +27,8 @@ export function InstagramPublish({
   kind: string;
   releaseId?: string;
   disabledReason?: string | null;
+  /** after a successful post (e.g. mark a ready-made post as posted) */
+  onPosted?: (permalink: string | null) => void;
 }) {
   const [status, setStatus] = useState<InstagramStatus | null>(null);
   const [showSetup, setShowSetup] = useState(false);
@@ -62,6 +66,7 @@ export function InstagramPublish({
     try {
       const res = await ottApi.instagramPublish(confirm.blobs, { caption, kind, releaseId, requestId: confirm.requestId });
       setResult({ ok: true, text: 'Posted to Instagram.', link: res.permalink });
+      onPosted?.(res.permalink ?? null);
       close();
       ottApi.instagramStatus().then(setStatus, () => null);
     } catch (e) {
@@ -114,7 +119,8 @@ export function InstagramPublish({
       )}
 
       {confirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onClick={() => !posting && close()}>
+        <Overlay onEscape={() => { if (!posting) close(); }}>
+        <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/70 p-4" onClick={() => !posting && close()}>
           <div className="w-full max-w-3xl max-h-[90vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-5 space-y-4" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between">
               <h3 className="text-lg font-bold">Post to @{status?.username} now?</h3>
@@ -142,6 +148,7 @@ export function InstagramPublish({
             </div>
           </div>
         </div>
+        </Overlay>
       )}
     </div>
   );

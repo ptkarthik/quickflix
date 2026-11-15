@@ -138,6 +138,29 @@ export class ImdbDatasetService implements OnApplicationBootstrap, OnModuleDestr
   }
 
 
+  /**
+   * Every IMDb movie / series with at least `minVotes` votes (from IMDb's own full title list + ratings file) —
+   * used to find well-known titles that TMDB's discover search didn't surface. Adult titles are skipped.
+   */
+  async knownTitles(minVotes: number, types = ['movie', 'tvSeries', 'tvMiniSeries']): Promise<Array<{ tconst: string; type: string; title: string; year: number | null; votes: number }>> {
+    if (!fs.existsSync(BASICS)) await this.download(BASICS_URL, BASICS, 15 * 60000);
+    const rows = await this.prisma.imdbRating.findMany({ where: { votes: { gte: minVotes } }, select: { tconst: true, votes: true } });
+    const votes = new Map(rows.map(r => [r.tconst, r.votes]));
+    const want = new Set(types);
+    const out: Array<{ tconst: string; type: string; title: string; year: number | null; votes: number }> = [];
+    const rl = readline.createInterface({ input: fs.createReadStream(BASICS).pipe(zlib.createGunzip()), crlfDelay: Infinity });
+    for await (const line of rl) {
+      const id = line.slice(0, line.indexOf('\t'));
+      const v = votes.get(id);
+      if (v == null) continue;
+      // tconst, titleType, primaryTitle, originalTitle, isAdult, startYear, …
+      const f = line.split('\t');
+      if (!want.has(f[1]) || f[4] === '1') continue;
+      out.push({ tconst: id, type: f[1], title: f[2], year: /^\d{4}$/.test(f[5]) ? Number(f[5]) : null, votes: v });
+    }
+    return out.sort((a, b) => b.votes - a.votes);
+  }
+
   private async load(): Promise<number> {
     const rl = readline.createInterface({ input: fs.createReadStream(FILE).pipe(zlib.createGunzip()), crlfDelay: Infinity });
     let batch: string[] = [];

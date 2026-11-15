@@ -1,4 +1,5 @@
 'use client';
+import { Overlay } from '@/components/ott/Overlay';
 /* eslint-disable @next/next/no-img-element -- export-safe <img> via same-origin proxy */
 import React, { useMemo, useRef, useState } from 'react';
 import { Check, Clapperboard, Copy, Download, Loader2, X } from 'lucide-react';
@@ -168,7 +169,8 @@ export function DayPostMaker({ subject, date, handle, onClose }: { subject: DayS
     : [`${subject.type === 'birth' ? 'Born' : 'Died'} (Wikidata): ${fmtDay(subject.type === 'birth' ? subject.person.birth : subject.person.death)}`, subject.person.sourcesAgree === true ? '✓ TMDB agrees' : subject.person.sourcesAgree === false ? `⚠ TMDB says ${fmtDay(subject.type === 'birth' ? subject.person.tmdbBirth : subject.person.tmdbDeath)}` : 'TMDB has no date to compare'];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4">
+    <Overlay>
+    <div className="fixed inset-0 z-[80] flex items-start justify-center overflow-y-auto overscroll-contain bg-black/70 p-4">
       <div className="w-full max-w-6xl rounded-xl border border-slate-700 bg-slate-900 p-4 space-y-3">
         <div className="flex items-center gap-2">
           <h2 className="text-lg font-semibold text-white">Make a post — {title}</h2>
@@ -259,5 +261,6 @@ export function DayPostMaker({ subject, date, handle, onClose }: { subject: DayS
       </div>
       {reel && <ReelMaker renderImages={async () => [await render()]} caption={caption} slideCount={1} title={title} handle={handle} accent={theme.accent} kind={`onthisday-${subject.type}`} releaseId={key} slug={title.replace(/[^\w]+/g, '-').toLowerCase()} onClose={() => setReel(false)} />}
     </div>
+    </Overlay>
   );
 }

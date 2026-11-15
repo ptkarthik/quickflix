@@ -90,6 +90,8 @@ export interface CriticsResult {
   average: number | null;
   ratedCount: number;
   phrases: Array<{ text: string; count: number }>;
+  /** what reviewers commonly say (no names) — "Gripping thriller", "Stellar performances" */
+  highlights?: Array<{ text: string; count: number }>;
 }
 const SHORT_OUTLET: Record<string, string> = {
   'the times of india': 'TOI', 'times of india': 'TOI', 'the indian express': 'Indian Express', 'indian express': 'Indian Express', 'the hindu': 'The Hindu', thehindu: 'The Hindu',

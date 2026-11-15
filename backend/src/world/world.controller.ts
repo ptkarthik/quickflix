@@ -81,6 +81,30 @@ export class WorldController {
     return this.world.startLanguageSweep(body || {});
   }
 
+  /** GET /world/coverage?kind=movie|tv&minVotes=50 — per language: well-known on TMDB vs in the app. */
+  @Get('coverage')
+  coverage(@Query('kind') kind?: string, @Query('minVotes') minVotes?: string, @Query('fresh') fresh?: string) {
+    return this.world.coverage(kind || 'movie', Number(minVotes) || 50, fresh === 'true');
+  }
+
+  /** POST /world/coverage/fill { kinds?, minVotes?, target? } — scan every under-covered language until it's complete. */
+  @Post('coverage/fill')
+  fillCoverage(@Body() body: { kinds?: WorldKind[]; minVotes?: number; target?: number }) {
+    return this.world.startCoverageFill(body || {});
+  }
+
+  /** POST /world/imdb-crosscheck { minVotes? } — add well-known titles from IMDb's full list that TMDB discover missed (no duplicates). */
+  @Post('imdb-crosscheck')
+  imdbCrossCheck(@Body() body: { minVotes?: number }) {
+    return this.world.startImdbCrossCheck(body || {});
+  }
+
+  /** POST /world/dedupe — hide titles stored twice (same IMDb title); approved ones are kept. */
+  @Post('dedupe')
+  async dedupe() {
+    return { hidden: await this.world.dedupe() };
+  }
+
   @Get('languages')
   languages() {
     return this.world.languages();

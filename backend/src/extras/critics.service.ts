@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import {
-  BuzzItem, CriticReview, aboutTitle, isStage, nearRelease, commonPhrases, isBuzz, isCriticReview, parseBingNews, parseWikiCritics, ratingFromJsonLd, ratingInText, ratingLabel, shortOutlet, verdictOf,
+  BuzzItem, CriticReview, aboutTitle, highlightPhrases, isStage, nearRelease, commonPhrases, isBuzz, isCriticReview, parseBingNews, parseWikiCritics, ratingFromJsonLd, ratingInText, ratingLabel, shortOutlet, verdictOf,
 } from './critics.util';
 
 const DIR = path.join(process.cwd(), 'data', 'critics');
@@ -191,5 +191,11 @@ export function summary(reviews: CriticReview[]) {
 
 function withSummary(f: CriticsFile) {
   const s = summary(f.reviews);
-  return { ...f, average: s.average, ratedCount: s.count, phrases: commonPhrases(f.reviews.map(r => r.oneLiner || r.headline || '').filter(Boolean), f.query.replace(/^"|".*$/g, '')) };
+  const lines = f.reviews.flatMap(r => [r.oneLiner, r.headline]).filter((x): x is string => !!x);
+  return {
+    ...f, average: s.average, ratedCount: s.count,
+    phrases: commonPhrases(f.reviews.map(r => r.oneLiner || r.headline || '').filter(Boolean), f.query.replace(/^"|".*$/g, '')),
+    // what reviewers commonly say, without names — for the "Highlights" slide
+    highlights: highlightPhrases(lines),
+  };
 }
